@@ -7,7 +7,7 @@
   "description": "Durable agent runtime proof of concept",
   "scripts": {
     "check": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --config vitest.config.ts"
   },
   "devEngines": {
     "runtime": {
@@ -17,10 +17,12 @@
     }
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.87.1"
+    "@earendil-works/pi-agent-core": "0.87.1",
+    "pg": "8.16.3"
   },
   "devDependencies": {
     "@types/node": "22.19.19",
+    "@types/pg": "8.15.5",
     "typescript": "7.0.2",
     "vitest": "4.1.9"
   }
