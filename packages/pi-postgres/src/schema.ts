@@ -1,6 +1,13 @@
 import type { SqlExecutor } from "./sql.ts";
 
 export const CREATE_PI_POSTGRES_SCHEMA = `
+CREATE TABLE IF NOT EXISTS pi_poc_sessions (
+  id TEXT PRIMARY KEY,
+  created_at BIGINT NOT NULL,
+  storage_version INTEGER NOT NULL,
+  parent_session_id TEXT
+);
+
 CREATE TABLE IF NOT EXISTS pi_poc_storage_sequences (
   session_id TEXT PRIMARY KEY,
   next_seq BIGINT NOT NULL
@@ -76,5 +83,6 @@ export async function deletePiPostgresSession(executor: SqlExecutor, sessionId: 
 		await transaction.query("DELETE FROM pi_poc_storage_lists WHERE session_id = $1", [sessionId]);
 		await transaction.query("DELETE FROM pi_poc_storage_usage WHERE session_id = $1", [sessionId]);
 		await transaction.query("DELETE FROM pi_poc_storage_sequences WHERE session_id = $1", [sessionId]);
+		await transaction.query("DELETE FROM pi_poc_sessions WHERE id = $1", [sessionId]);
 	});
 }
