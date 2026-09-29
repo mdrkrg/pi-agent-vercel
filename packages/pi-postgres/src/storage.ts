@@ -227,9 +227,6 @@ export class PostgresStorage implements Storage {
 			);
 			if (existing.rows.length > 0) throw new Error(`Duplicate entry or usage id: ${existing.rows[0]!.id}`);
 		}
-		const entryIds = new Set(
-			writes.flatMap((write) => (write.kind === "entry" ? [write.entry.id] : [])),
-		);
 		const parentIds = writes.flatMap((write) => (write.kind === "entry" && write.entry.parentId !== null ? [write.entry.parentId] : []));
 		if (parentIds.length === 0) return;
 		const existingParents = await transaction.query<{ id: string }>(
@@ -237,10 +234,13 @@ export class PostgresStorage implements Storage {
 			[this.sessionId, parentIds],
 		);
 		const knownParents = new Set(existingParents.rows.map((row) => row.id));
-		for (const parentId of parentIds) {
-			if (!knownParents.has(parentId) && !entryIds.has(parentId)) {
+		for (const write of writes) {
+			if (write.kind !== "entry") continue;
+			const parentId = write.entry.parentId;
+			if (parentId !== null && !knownParents.has(parentId)) {
 				throw new Error(`Missing parent entry: ${parentId}`);
 			}
+			knownParents.add(write.entry.id);
 		}
 	}
 
