@@ -192,6 +192,12 @@ importers:
         specifier: 4.1.9
         version: 4.1.9(@types/node@22.19.19)(vite@8.3.1(@types/node@22.19.19)(esbuild@0.28.2)(yaml@2.9.0))
 
+  packages/agent-runtime:
+    dependencies:
+      '@poc/pi-postgres':
+        specifier: workspace:*
+        version: link:../pi-postgres
+
   packages/pi-postgres: {}
 
 packages:

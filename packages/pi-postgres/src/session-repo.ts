@@ -50,6 +50,17 @@ export class PostgresSessionRepo implements SessionRepo {
 	) {}
 
 	async create(options: SessionCreateOptions, context: Context): Promise<Session> {
+		return this.createInternal(options, undefined, context);
+	}
+
+	async createWithLease(options: SessionCreateOptions, lease: SessionLease, context: Context): Promise<Session> {
+		if (options.id !== undefined && options.id !== lease.sessionId) {
+			throw new Error(`Lease session does not match: ${options.id}`);
+		}
+		return this.createInternal({ ...options, id: lease.sessionId }, lease, context);
+	}
+
+	private async createInternal(options: SessionCreateOptions, lease: SessionLease | undefined, context: Context): Promise<Session> {
 		this.assertOpen();
 		const id = options.id ?? uuidv7(this.now());
 		if (this.openSessions.has(id) || this.pendingCreates.has(id)) throw new Error(`Session already open: ${id}`);
@@ -70,7 +81,7 @@ export class PostgresSessionRepo implements SessionRepo {
 				storageVersion: STORAGE_VERSION,
 				...(options.parentSessionId === undefined ? {} : { parentSessionId: options.parentSessionId }),
 			};
-			return this.openHandle(metadata, context);
+			return this.openHandle(metadata, context, lease);
 		} finally {
 			this.pendingCreates.delete(id);
 		}
