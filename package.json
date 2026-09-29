@@ -1,0 +1,27 @@
+{
+  "name": "pi-agent-vercel-poc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.8.1",
+  "description": "Durable agent runtime proof of concept",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "26.10.0",
+      "onFail": "download"
+    }
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.87.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.19",
+    "typescript": "7.0.2",
+    "vitest": "4.1.9"
+  }
+}
