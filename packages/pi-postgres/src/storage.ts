@@ -21,6 +21,7 @@ import {
 	type ValueList,
 } from "@earendil-works/pi-agent-core/harness/session";
 import type { SqlExecutor } from "./sql.ts";
+import { assertSessionLease, type SessionLease } from "./lease.ts";
 
 type Usage = UsageRow["usage"];
 
@@ -158,6 +159,7 @@ export class PostgresStorage implements Storage {
 		private readonly executor: SqlExecutor,
 		private readonly sessionId: string,
 		private readonly now: () => number = Date.now,
+		private readonly lease: SessionLease | undefined = undefined,
 	) {}
 
 	commit(writes: Write[], _context: Context): Promise<CommitResult> {
@@ -173,6 +175,7 @@ export class PostgresStorage implements Storage {
 	private async commitNow(writes: Write[]): Promise<CommitResult> {
 		if (writes.length === 0) throw new Error("Storage commit requires at least one write");
 		return this.executor.transaction(async (transaction) => {
+			if (this.lease !== undefined) await assertSessionLease(transaction, this.lease);
 			const timestamp = this.now();
 			const firstSeq = await this.reserveSequences(transaction, writes.length);
 			await this.validateWrites(transaction, writes);

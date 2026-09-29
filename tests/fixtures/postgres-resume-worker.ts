@@ -1,6 +1,6 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/harness/context";
 import { createModels, fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
-import { deletePiPostgresSession, PgExecutor, PostgresSessionRepo } from "../../packages/pi-postgres/src/index.ts";
+import { PgExecutor, PostgresSessionRepo } from "../../packages/pi-postgres/src/index.ts";
 import { acceptPrompt, driveOperation, openAgentHarness } from "../../packages/agent-runtime/src/index.ts";
 
 const mode = process.argv[2];

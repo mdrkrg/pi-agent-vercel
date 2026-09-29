@@ -38,6 +38,7 @@ describe.skipIf(databaseUrl === undefined)("Postgres SessionRepo contract", () =
 
 	async function clearDatabase(): Promise<void> {
 		await executor.transaction(async (transaction) => {
+			await transaction.query("DELETE FROM agent_session_leases");
 			await transaction.query("DELETE FROM pi_poc_storage_entries");
 			await transaction.query("DELETE FROM pi_poc_storage_values");
 			await transaction.query("DELETE FROM pi_poc_storage_lists");

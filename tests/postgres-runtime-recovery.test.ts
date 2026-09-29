@@ -1,7 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/harness/context";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { deletePiPostgresSession, ensurePiPostgresSchema, PgExecutor } from "../packages/pi-postgres/src/index.ts";
 

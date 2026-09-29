@@ -8,6 +8,13 @@ CREATE TABLE IF NOT EXISTS pi_poc_sessions (
   parent_session_id TEXT
 );
 
+CREATE TABLE IF NOT EXISTS agent_session_leases (
+  session_id TEXT PRIMARY KEY,
+  holder_id TEXT NOT NULL,
+  fencing_epoch BIGINT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS pi_poc_storage_sequences (
   session_id TEXT PRIMARY KEY,
   next_seq BIGINT NOT NULL
@@ -78,6 +85,7 @@ export async function ensurePiPostgresSchema(executor: SqlExecutor): Promise<voi
 
 export async function deletePiPostgresSession(executor: SqlExecutor, sessionId: string): Promise<void> {
 	await executor.transaction(async (transaction) => {
+		await transaction.query("DELETE FROM agent_session_leases WHERE session_id = $1", [sessionId]);
 		await transaction.query("DELETE FROM pi_poc_storage_entries WHERE session_id = $1", [sessionId]);
 		await transaction.query("DELETE FROM pi_poc_storage_values WHERE session_id = $1", [sessionId]);
 		await transaction.query("DELETE FROM pi_poc_storage_lists WHERE session_id = $1", [sessionId]);

@@ -11,6 +11,7 @@ import type { Context } from "@earendil-works/pi-agent-core/harness/context";
 import { deletePiPostgresSession, ensurePiPostgresSchema } from "./schema.ts";
 import { PostgresStorage } from "./storage.ts";
 import type { SqlExecutor } from "./sql.ts";
+import type { SessionLease } from "./lease.ts";
 
 const STORAGE_VERSION = 1;
 
@@ -76,6 +77,15 @@ export class PostgresSessionRepo implements SessionRepo {
 	}
 
 	async open(metadata: SessionMetadata, _context: Context): Promise<Session> {
+		return this.openInternal(metadata, undefined, _context);
+	}
+
+	async openWithLease(metadata: SessionMetadata, lease: SessionLease, context: Context): Promise<Session> {
+		if (lease.sessionId !== metadata.id) throw new Error(`Lease session does not match: ${metadata.id}`);
+		return this.openInternal(metadata, lease, context);
+	}
+
+	private async openInternal(metadata: SessionMetadata, lease: SessionLease | undefined, _context: Context): Promise<Session> {
 		this.assertOpen();
 		if (this.openSessions.has(metadata.id)) throw new Error(`Session is already open: ${metadata.id}`);
 		const result = await this.executor.query<SessionRow>(
@@ -85,7 +95,7 @@ export class PostgresSessionRepo implements SessionRepo {
 		const row = result.rows[0];
 		if (row === undefined) throw new Error(`Unknown session: ${metadata.id}`);
 		if (row.storage_version !== STORAGE_VERSION) throw new Error(`Unsupported session storage version: ${row.storage_version}`);
-		return this.openHandle(metadataFromRow(row), _context);
+		return this.openHandle(metadataFromRow(row), _context, lease);
 	}
 
 	async list(_options: undefined, _context: Context): Promise<SessionMetadata[]> {
@@ -115,9 +125,9 @@ export class PostgresSessionRepo implements SessionRepo {
 		return this.closePromise;
 	}
 
-	private async openHandle(metadata: SessionMetadata, _context: Context): Promise<Session> {
+	private async openHandle(metadata: SessionMetadata, _context: Context, lease: SessionLease | undefined = undefined): Promise<Session> {
 		if (this.openSessions.has(metadata.id)) throw new Error(`Session is already open: ${metadata.id}`);
-		const storage = new PostgresStorage(this.executor, metadata.id, this.now);
+		const storage = new PostgresStorage(this.executor, metadata.id, this.now, lease);
 		const session = new StorageBackedSession(metadata, storage, {
 			onClose: () => this.openSessions.delete(metadata.id),
 		});
