@@ -12,6 +12,7 @@ import { deletePiPostgresSession, ensurePiPostgresSchema } from "./schema.ts";
 import { PostgresStorage } from "./storage.ts";
 import type { SqlExecutor } from "./sql.ts";
 import type { SessionLease } from "./lease.ts";
+import { assertSessionLease } from "./lease.ts";
 
 const STORAGE_VERSION = 1;
 
@@ -69,6 +70,7 @@ export class PostgresSessionRepo implements SessionRepo {
 		try {
 			await ensurePiPostgresSchema(this.executor);
 			await this.executor.transaction(async (transaction) => {
+				if (lease !== undefined) await assertSessionLease(transaction, lease);
 				await transaction.query(
 					`INSERT INTO pi_poc_sessions (id, created_at, storage_version, parent_session_id)
 					 VALUES ($1, $2, $3, $4)`,
