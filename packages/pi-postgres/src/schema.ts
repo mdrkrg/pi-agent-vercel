@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS pi_poc_schema_migrations (
 );
 INSERT INTO pi_poc_schema_migrations (version) VALUES ('2026-09-control-state-v1') ON CONFLICT (version) DO NOTHING;
 INSERT INTO pi_poc_schema_migrations (version) VALUES ('2026-09-control-state-v2') ON CONFLICT (version) DO NOTHING;
+INSERT INTO pi_poc_schema_migrations (version) VALUES ('2026-09-drive-jobs-v1') ON CONFLICT (version) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS agent_session_leases (
   session_id TEXT PRIMARY KEY,
@@ -100,6 +101,33 @@ CREATE TABLE IF NOT EXISTS agent_submissions (
 
 CREATE INDEX IF NOT EXISTS agent_submissions_session_idx ON agent_submissions (session_id, created_at);
 
+-- A drive job is a recovery projection and claim record. Pi remains the
+-- authority for operation state; this table only tells workers where to look
+-- and fences duplicate drive passes.
+CREATE TABLE IF NOT EXISTS agent_drive_jobs (
+  id TEXT PRIMARY KEY,
+  submission_id TEXT,
+  session_id TEXT NOT NULL,
+  lane TEXT NOT NULL,
+  operation_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'waiting', 'completed', 'failed', 'cancelled')),
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  available_at BIGINT NOT NULL,
+  deferred_handle JSONB,
+  claim_owner TEXT,
+  claim_epoch BIGINT NOT NULL DEFAULT 0,
+  claim_expires_at TIMESTAMPTZ,
+  last_error TEXT,
+  created_at BIGINT NOT NULL,
+  updated_at BIGINT NOT NULL,
+  UNIQUE (session_id, lane, operation_id)
+);
+
+CREATE INDEX IF NOT EXISTS agent_drive_jobs_due_idx
+  ON agent_drive_jobs (status, available_at, claim_expires_at);
+CREATE INDEX IF NOT EXISTS agent_drive_jobs_session_idx
+  ON agent_drive_jobs (session_id, lane, status);
+
 CREATE TABLE IF NOT EXISTS agent_delegated_tasks (
   id TEXT PRIMARY KEY,
   parent_submission_id TEXT NOT NULL,
@@ -142,6 +170,7 @@ export async function ensurePiPostgresSchema(executor: SqlExecutor): Promise<voi
 export async function deletePiPostgresSession(executor: SqlExecutor, sessionId: string): Promise<void> {
 	await executor.transaction(async (transaction) => {
 		await transaction.query("DELETE FROM agent_session_leases WHERE session_id = $1", [sessionId]);
+		await transaction.query("DELETE FROM agent_drive_jobs WHERE session_id = $1", [sessionId]);
 		await transaction.query("DELETE FROM pi_poc_storage_entries WHERE session_id = $1", [sessionId]);
 		await transaction.query("DELETE FROM pi_poc_storage_values WHERE session_id = $1", [sessionId]);
 		await transaction.query("DELETE FROM pi_poc_storage_lists WHERE session_id = $1", [sessionId]);

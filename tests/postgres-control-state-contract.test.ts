@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { DelegatedTaskRepo, ensurePiPostgresSchema, purgeSubmissionControlState, PgExecutor, SubmissionRepo } from "../packages/pi-postgres/src/index.ts";
+import { DelegatedTaskRepo, DriveJobRepo, ensurePiPostgresSchema, purgeSubmissionControlState, PgExecutor, SubmissionRepo } from "../packages/pi-postgres/src/index.ts";
 import { admitSubmission } from "../packages/agent-runtime/src/index.ts";
 import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/harness/context";
 
@@ -77,5 +77,19 @@ describe.skipIf(databaseUrl === undefined)("Postgres control-state contracts", (
 		const purged = await purgeSubmissionControlState(executor, 100);
 		expect(purged).toBeGreaterThanOrEqual(1);
 		expect(await oldRepo.get(old.submission.id)).toBeUndefined();
+	});
+
+	it("claims one durable drive job and fences stale completion", async () => {
+		const repo = new DriveJobRepo(executor, () => 500);
+		const first = await repo.enqueue({ sessionId, lane: "main", operationId: "drive-operation-1" });
+		const retry = await repo.enqueue({ sessionId, lane: "main", operationId: "drive-operation-1" });
+		expect(retry.id).toBe(first.id);
+		const [claim] = await repo.claimDue({ ownerId: "worker-1", ttlMs: 10_000 });
+		expect(claim).toMatchObject({ id: first.id, status: "running", claimOwner: "worker-1", claimEpoch: 1, attemptCount: 1 });
+		if (claim === undefined) return;
+		await expect(repo.complete(claim, "worker-2")).rejects.toThrow("claim rejected");
+		const completed = await repo.complete(claim, "worker-1");
+		expect(completed.status).toBe("completed");
+		expect(await repo.claimDue({ ownerId: "worker-2" })).toHaveLength(0);
 	});
 });
