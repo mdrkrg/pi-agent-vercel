@@ -15,3 +15,5 @@ Postgres contract suites run when `DATABASE_URL` is set. They cover Pi Storage a
 The runtime includes the product submission boundary, identity-only drive scheduler, workload-aware Function/Sandbox host contracts, delegated work state, workspace capabilities, and hardening helpers. Postgres remains the authoritative store; workflow payloads carry identities and references rather than transcript or credential data.
 
 The repository CI workflow starts PostgreSQL 16 and runs the full contract suite with `DATABASE_URL`, including fresh-process recovery and control-state tests.
+
+A Vercel-compatible Node Function entrypoint and local runner are available for service validation. See [`docs/local-vercel.md`](docs/local-vercel.md); start it with `DATABASE_URL=... pnpm run local:vercel`. The local runner simulates the Function/API boundary and an in-process workflow adapter, not Vercel's control plane.
