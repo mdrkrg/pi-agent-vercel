@@ -46,6 +46,7 @@ describe.skipIf(databaseUrl === undefined)("Postgres SessionRepo contract", () =
 			await transaction.query("DELETE FROM pi_poc_storage_lists");
 			await transaction.query("DELETE FROM pi_poc_storage_usage");
 			await transaction.query("DELETE FROM pi_poc_storage_sequences");
+			await transaction.query("DELETE FROM agent_service_session_access");
 			await transaction.query("DELETE FROM pi_poc_sessions");
 		});
 	}

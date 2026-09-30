@@ -27,4 +27,19 @@ describe.skipIf(databaseUrl === undefined)("Vercel service PostgreSQL boundary",
 
 		await expect(service.submit(session.id, "hello", other, "request-1")).rejects.toMatchObject({ status: 404 });
 	});
+
+	it("copies service ownership when forking a session", async () => {
+		const owner = { userId: "owner", tenantId: "tenant", scopes: ["agent:run"] } as const;
+		const other = { userId: "other", tenantId: "tenant", scopes: ["agent:run"] } as const;
+		const source = await service.createSession(`fork-source-${randomUUID()}`, owner);
+		const fork = await service.forkSession(source.id, owner, { scope: "tree" });
+		sessionIds.push(source.id, fork.id);
+
+		const access = await service.executor.query<{ user_id: string; tenant_id: string }>(
+			"SELECT user_id, tenant_id FROM agent_service_session_access WHERE session_id = $1",
+			[fork.id],
+		);
+		expect(access.rows[0]).toEqual({ user_id: "owner", tenant_id: "tenant" });
+		await expect(service.submit(fork.id, "hello", other, "request-1")).rejects.toMatchObject({ status: 404 });
+	});
 });

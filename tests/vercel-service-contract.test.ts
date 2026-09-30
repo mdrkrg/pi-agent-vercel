@@ -107,6 +107,23 @@ describe("local Vercel service HTTP contract", () => {
 		expect(received[3]).toBe("request-1");
 	});
 
+	it("passes fork options and identity to the fork service", async () => {
+		let received: unknown[] = [];
+		const output = response();
+		await handleRequest(
+			request("POST", "/api/sessions/session-1/fork", { scope: "branch", branch: "main", entryId: "entry-1", position: "before" }, {
+				"x-user-id": "user-1",
+				"x-tenant-id": "tenant-1",
+			}),
+			output.response,
+			service({ forkSession: async (...args) => { received = args; return { id: "fork-1", createdAt: 1, storageVersion: 1, parentSessionId: "session-1" }; } }),
+		);
+		expect(output.status).toBe(201);
+		expect(received[0]).toBe("session-1");
+		expect(received[1]).toMatchObject({ userId: "user-1", tenantId: "tenant-1" });
+		expect(received[2]).toEqual({ scope: "branch", branch: "main", entryId: "entry-1", position: "before" });
+	});
+
 	it("protects the internal drive endpoint with the workflow token", async () => {
 		let driven = false;
 		const output = response();
