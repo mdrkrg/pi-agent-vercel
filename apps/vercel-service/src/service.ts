@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createModels, fauxAssistantMessage, fauxProvider, type Api, type Model, type Models } from "@earendil-works/pi-ai";
 import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/harness/context";
-import type { SessionMetadata } from "@earendil-works/pi-agent-core/harness/session";
+import type { ForkOptions, SessionMetadata } from "@earendil-works/pi-agent-core/harness/session";
 import {
 	admitSubmission,
 	drivePostgresOperation,
@@ -95,6 +95,28 @@ function stringField(body: JsonObject, name: string): string {
 	const value = body[name];
 	if (typeof value !== "string" || value.length === 0) throw new HttpError(400, `${name} must be a non-empty string`);
 	return value;
+}
+
+function optionalStringField(body: JsonObject, name: string): string | undefined {
+	return body[name] === undefined ? undefined : stringField(body, name);
+}
+
+function forkOptions(body: JsonObject): ForkOptions {
+	const id = optionalStringField(body, "id");
+	const scope = body.scope;
+	if (scope === "tree") return id === undefined ? { scope } : { scope, id };
+	if (scope !== "branch") throw new HttpError(400, "scope must be branch or tree");
+	const branch = stringField(body, "branch");
+	const entryId = optionalStringField(body, "entryId");
+	const position = body.position;
+	if (position !== undefined && position !== "before" && position !== "at") throw new HttpError(400, "position must be before or at");
+	return {
+		scope,
+		branch,
+		...(entryId === undefined ? {} : { entryId }),
+		...(position === undefined ? {} : { position }),
+		...(id === undefined ? {} : { id }),
+	};
 }
 
 function principalFromRequest(req: IncomingMessage, mode: ServiceMode): Principal {
@@ -212,6 +234,30 @@ export class AgentService {
 		);
 		const owner = result.rows[0];
 		if (owner === undefined || owner.user_id !== principal.userId || owner.tenant_id !== principal.tenantId) throw new HttpError(404, "Session not found");
+	}
+
+	async forkSession(sourceId: string, principal: Principal, options: ForkOptions): Promise<SessionMetadata> {
+		await this.ready();
+		await this.authorizeSession(sourceId, principal);
+		const source = await this.session(sourceId);
+		let forked: Awaited<ReturnType<PostgresSessionRepo["fork"]>> | undefined;
+		try {
+			forked = await this.repo.fork(source, options, BACKGROUND_CONTEXT);
+			const metadata = forked.metadata;
+			await this.executor.query(
+				`INSERT INTO agent_service_session_access (session_id, user_id, tenant_id) VALUES ($1, $2, $3)`,
+				[metadata.id, principal.userId, principal.tenantId],
+			);
+			return metadata;
+		} catch (error) {
+			if (forked !== undefined) {
+				await forked.close(BACKGROUND_CONTEXT);
+				await this.repo.delete(forked.metadata, BACKGROUND_CONTEXT).catch(() => undefined);
+			}
+			throw error;
+		} finally {
+			if (forked !== undefined) await forked.close(BACKGROUND_CONTEXT);
+		}
 	}
 
 	private async session(id: string): Promise<SessionMetadata> {
@@ -431,6 +477,13 @@ export async function handleRequest(req: VercelRequest, res: ServerResponse, pro
 			const body = await readJson(req);
 			const id = body.id === undefined ? undefined : stringField(body, "id");
 			json(res, 201, { session: await service.createSession(id, principal) });
+			return;
+		}
+		const forkPath = /^\/api\/sessions\/([^/]+)\/fork$/.exec(path);
+		if (req.method === "POST" && forkPath !== null) {
+			const body = await readJson(req);
+			const sourceId = decodeURIComponent(forkPath[1]!);
+			json(res, 201, { session: await service.forkSession(sourceId, principal, forkOptions(body)) });
 			return;
 		}
 		const sessionId = sessionIdFromPath(path);

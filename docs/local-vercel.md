@@ -50,6 +50,7 @@ Supported routes:
 - `GET /api/health`
 - `POST /api/sessions`
 - `POST /api/sessions/:sessionId/messages`
+- `POST /api/sessions/:sessionId/fork`
 - `GET /api/submissions/:submissionId`
 - `GET /api/submissions/:submissionId/result`
 - `POST /api/submissions/:submissionId/cancel`
