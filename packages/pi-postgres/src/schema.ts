@@ -100,6 +100,12 @@ CREATE TABLE IF NOT EXISTS agent_submissions (
 
 CREATE INDEX IF NOT EXISTS agent_submissions_session_idx ON agent_submissions (session_id, created_at);
 
+CREATE TABLE IF NOT EXISTS agent_service_session_access (
+  session_id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  tenant_id TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS agent_delegated_tasks (
   id TEXT PRIMARY KEY,
   parent_submission_id TEXT NOT NULL,
@@ -148,6 +154,7 @@ export async function deletePiPostgresSession(executor: SqlExecutor, sessionId: 
 		await transaction.query("DELETE FROM pi_poc_storage_usage WHERE session_id = $1", [sessionId]);
 		await transaction.query("DELETE FROM agent_delegated_tasks WHERE parent_submission_id IN (SELECT id FROM agent_submissions WHERE session_id = $1)", [sessionId]);
 		await transaction.query("DELETE FROM agent_submissions WHERE session_id = $1", [sessionId]);
+		await transaction.query("DELETE FROM agent_service_session_access WHERE session_id = $1", [sessionId]);
 		await transaction.query("DELETE FROM pi_poc_storage_sequences WHERE session_id = $1", [sessionId]);
 		await transaction.query("DELETE FROM pi_poc_sessions WHERE id = $1", [sessionId]);
 	});

@@ -1,0 +1,15 @@
+{
+  "name": "@poc/vercel-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/service.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.87.1",
+    "@earendil-works/pi-ai": "0.87.1",
+    "@poc/agent-runtime": "workspace:*",
+    "@poc/pi-postgres": "workspace:*"
+  }
+}
