@@ -7,7 +7,8 @@
   "description": "Durable agent runtime proof of concept",
   "scripts": {
     "check": "tsc --noEmit",
-    "test": "vitest run --config vitest.config.ts"
+    "test": "vitest run --config vitest.config.ts",
+    "local:vercel": "tsx apps/vercel-service/src/local.ts"
   },
   "devEngines": {
     "runtime": {
@@ -19,6 +20,8 @@
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.87.1",
     "@earendil-works/pi-ai": "0.87.1",
+    "@poc/agent-runtime": "workspace:*",
+    "@poc/pi-postgres": "workspace:*",
     "pg": "8.16.3"
   },
   "devDependencies": {

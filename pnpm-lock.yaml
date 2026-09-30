@@ -172,6 +172,12 @@ importers:
       '@earendil-works/pi-ai':
         specifier: 0.87.1
         version: 0.87.1(ws@8.22.0)
+      '@poc/agent-runtime':
+        specifier: workspace:*
+        version: link:packages/agent-runtime
+      '@poc/pi-postgres':
+        specifier: workspace:*
+        version: link:packages/pi-postgres
       pg:
         specifier: 8.16.3
         version: 8.16.3
@@ -195,13 +201,38 @@ importers:
         specifier: 4.1.9
         version: 4.1.9(@types/node@22.19.19)(vite@8.3.1(@types/node@22.19.19)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.0))
 
+  apps/vercel-service:
+    dependencies:
+      '@earendil-works/pi-agent-core':
+        specifier: 0.87.1
+        version: 0.87.1(ws@8.22.0)
+      '@earendil-works/pi-ai':
+        specifier: 0.87.1
+        version: 0.87.1(ws@8.22.0)
+      '@poc/agent-runtime':
+        specifier: workspace:*
+        version: link:../../packages/agent-runtime
+      '@poc/pi-postgres':
+        specifier: workspace:*
+        version: link:../../packages/pi-postgres
+
   packages/agent-runtime:
     dependencies:
+      '@earendil-works/pi-agent-core':
+        specifier: 0.87.1
+        version: 0.87.1(ws@8.22.0)
       '@poc/pi-postgres':
         specifier: workspace:*
         version: link:../pi-postgres
 
-  packages/pi-postgres: {}
+  packages/pi-postgres:
+    dependencies:
+      '@earendil-works/pi-agent-core':
+        specifier: 0.87.1
+        version: 0.87.1(ws@8.22.0)
+      pg:
+        specifier: 8.16.3
+        version: 8.16.3
 
 packages:
 
