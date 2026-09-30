@@ -23,6 +23,37 @@ type SessionRow = {
 	parent_session_id: string | null;
 };
 
+type EntryCopyRow = {
+	id: string;
+	parent_id: string | null;
+	seq: string | number;
+	timestamp_ms: string | number;
+	entry_type: string;
+	custom_type: string | null;
+	payload: unknown;
+};
+
+type ValueCopyRow = {
+	namespace: string;
+	value_key: string;
+	seq: string | number;
+	value: unknown;
+};
+
+type ListCopyRow = {
+	namespace: string;
+	list_key: string;
+	seq: string | number;
+	value: unknown;
+};
+
+type ForkSelection = {
+	entryIds: Set<string>;
+	branchPlan?: { branch: string; destinationTip: string | null };
+};
+
+const IDLE_LANE_STATE = { currentOperationId: null, lastOperationId: null, inbox: [] } as const;
+
 function toNumber(value: string | number): number {
 	const result = typeof value === "number" ? value : Number(value);
 	if (!Number.isSafeInteger(result)) throw new Error(`Unsafe session timestamp: ${String(value)}`);
@@ -41,6 +72,7 @@ function metadataFromRow(row: SessionRow): SessionMetadata {
 /** Session repository backed by the same SQL executor as PostgresStorage. */
 export class PostgresSessionRepo implements SessionRepo {
 	private readonly openSessions = new Map<string, Session>();
+	private readonly openStorages = new Map<string, PostgresStorage>();
 	private readonly pendingCreates = new Set<string>();
 	private closed = false;
 	private closePromise: Promise<void> | undefined;
@@ -127,8 +159,20 @@ export class PostgresSessionRepo implements SessionRepo {
 		await deletePiPostgresSession(this.executor, metadata.id);
 	}
 
-	fork(_source: SessionMetadata, _options: ForkOptions, _context: Context): Promise<Session> {
-		return Promise.reject(new Error("PostgresSessionRepo fork is not implemented in the PoC"));
+	async fork(source: SessionMetadata, options: ForkOptions, context: Context): Promise<Session> {
+		this.assertOpen();
+		const id = options.id ?? uuidv7(this.now());
+		if (this.openSessions.has(id) || this.pendingCreates.has(id)) throw new Error(`Session already open: ${id}`);
+		this.pendingCreates.add(id);
+		try {
+			await ensurePiPostgresSchema(this.executor);
+			const sourceStorage = this.openStorages.get(source.id);
+			if (sourceStorage !== undefined) await sourceStorage.whenIdle();
+			const metadata = await this.copyFork(source, options, id);
+			return this.openHandle(metadata, context);
+		} finally {
+			this.pendingCreates.delete(id);
+		}
 	}
 
 	async close(context: Context): Promise<void> {
@@ -142,10 +186,178 @@ export class PostgresSessionRepo implements SessionRepo {
 		if (this.openSessions.has(metadata.id)) throw new Error(`Session is already open: ${metadata.id}`);
 		const storage = new PostgresStorage(this.executor, metadata.id, this.now, lease);
 		const session = new StorageBackedSession(metadata, storage, {
-			onClose: () => this.openSessions.delete(metadata.id),
+			onClose: () => {
+				this.openSessions.delete(metadata.id);
+				this.openStorages.delete(metadata.id);
+			},
 		});
 		this.openSessions.set(metadata.id, session);
+		this.openStorages.set(metadata.id, storage);
 		return session;
+	}
+
+	private async copyFork(source: SessionMetadata, options: ForkOptions, id: string): Promise<SessionMetadata> {
+		const createdAt = this.now();
+		return this.executor.transaction(async (transaction) => {
+			await transaction.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+			const sourceRows = await transaction.query<SessionRow>(
+				"SELECT id, created_at, storage_version, parent_session_id FROM pi_poc_sessions WHERE id = $1",
+				[source.id],
+			);
+			if (sourceRows.rows.length === 0) throw new Error(`Unknown session: ${source.id}`);
+			const sourceRow = sourceRows.rows[0]!;
+			if (sourceRow.storage_version !== STORAGE_VERSION) {
+				throw new Error(`Unsupported session storage version: ${sourceRow.storage_version}`);
+			}
+
+			const entries = await transaction.query<EntryCopyRow>(
+				`SELECT id, parent_id, seq, timestamp_ms, entry_type, custom_type, payload
+				 FROM pi_poc_storage_entries WHERE session_id = $1 ORDER BY seq ASC`,
+				[source.id],
+			);
+			const values = await transaction.query<ValueCopyRow>(
+				"SELECT namespace, value_key, seq, value FROM pi_poc_storage_values WHERE session_id = $1",
+				[source.id],
+			);
+			const lists = await transaction.query<ListCopyRow>(
+				"SELECT namespace, list_key, seq, value FROM pi_poc_storage_lists WHERE session_id = $1 ORDER BY seq ASC",
+				[source.id],
+			);
+			const selection = this.selectForkEntries(entries.rows, values.rows, options);
+			const copiedValues = this.projectForkValues(values.rows, selection, options);
+			const copiedLists = this.projectForkLists(lists.rows, options);
+
+			await transaction.query(
+				`INSERT INTO pi_poc_sessions (id, created_at, storage_version, parent_session_id)
+				 VALUES ($1, $2, $3, $4)`,
+				[id, createdAt, STORAGE_VERSION, source.id],
+			);
+			for (const entry of entries.rows) {
+				if (!selection.entryIds.has(entry.id)) continue;
+				await transaction.query(
+					`INSERT INTO pi_poc_storage_entries
+					 (session_id, id, parent_id, seq, timestamp_ms, entry_type, custom_type, payload)
+					 VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
+					[
+						id,
+						entry.id,
+						entry.parent_id,
+					toNumber(entry.seq),
+					toNumber(entry.timestamp_ms),
+						entry.entry_type,
+						entry.custom_type,
+						JSON.stringify(entry.payload ?? {}),
+					],
+				);
+			}
+			for (const value of copiedValues) {
+				await transaction.query(
+					`INSERT INTO pi_poc_storage_values (session_id, namespace, value_key, seq, value)
+					 VALUES ($1, $2, $3, $4, $5::jsonb)`,
+					[id, value.namespace, value.value_key, toNumber(value.seq), JSON.stringify(value.value)],
+				);
+			}
+			for (const list of copiedLists) {
+				await transaction.query(
+					`INSERT INTO pi_poc_storage_lists (session_id, namespace, list_key, seq, value)
+					 VALUES ($1, $2, $3, $4, $5::jsonb)`,
+					[id, list.namespace, list.list_key, toNumber(list.seq), JSON.stringify(list.value)],
+				);
+			}
+			const sequence = await transaction.query<{ next_seq: string | number }>(
+				"SELECT next_seq FROM pi_poc_storage_sequences WHERE session_id = $1",
+				[source.id],
+			);
+			if (sequence.rows[0] !== undefined) {
+				await transaction.query(
+					"INSERT INTO pi_poc_storage_sequences (session_id, next_seq) VALUES ($1, $2)",
+					[id, toNumber(sequence.rows[0].next_seq)],
+				);
+			}
+			return {
+				id,
+				createdAt,
+				storageVersion: STORAGE_VERSION,
+				parentSessionId: source.id,
+			};
+		});
+	}
+
+	private selectForkEntries(entries: readonly EntryCopyRow[], values: readonly ValueCopyRow[], options: ForkOptions): ForkSelection {
+		const entryMap = new Map(entries.map((entry) => [entry.id, entry]));
+		const tips = values.filter((value) => value.namespace === "pi.branch.tip");
+		const tipKeys = new Set(tips.map((tip) => tip.value_key));
+		for (const value of values) {
+			if ((value.namespace === "pi.lane.config" || value.namespace === "pi.lane.state") && !tipKeys.has(value.value_key)) {
+				throw new Error(`Source session branch ${JSON.stringify(value.value_key)} is missing branch.tip`);
+			}
+		}
+		for (const tip of tips) {
+			const config = values.some((value) => value.namespace === "pi.lane.config" && value.value_key === tip.value_key);
+			const state = values.some((value) => value.namespace === "pi.lane.state" && value.value_key === tip.value_key);
+			if (config !== state) throw new Error(`Source session branch ${JSON.stringify(tip.value_key)} has incomplete lane state`);
+			if (options.scope === "branch" && tip.value_key === options.branch && !config) {
+				throw new Error(`Source branch ${JSON.stringify(options.branch)} is not a configured AgentLane`);
+			}
+			if (tip.value !== null && !entryMap.has(String(tip.value))) {
+				throw new Error(`Source session branch ${JSON.stringify(tip.value_key)} has an unknown tip`);
+			}
+		}
+		if (options.scope === "tree") return { entryIds: new Set(entries.map((entry) => entry.id)) };
+		const tip = tips.find((value) => value.value_key === options.branch);
+		if (tip === undefined) throw new Error(`Unknown source branch: ${options.branch}`);
+		const requested = options.entryId ?? (tip.value === null ? null : String(tip.value));
+		const selected = new Set<string>();
+		let found = requested === null;
+		let destinationTip: string | null = null;
+		let entryId = tip.value === null ? null : String(tip.value);
+		while (entryId !== null) {
+			const entry = entryMap.get(entryId);
+			if (entry === undefined) throw new Error(`Corrupt source branch: missing parent ${entryId}`);
+			if (entryId === requested) {
+				found = true;
+				destinationTip = options.position === "before" ? entry.parent_id : entryId;
+				if (options.position !== "before") selected.add(entryId);
+			} else if (found) {
+				selected.add(entryId);
+			}
+			entryId = entry.parent_id;
+		}
+		if (!found) throw new Error(`Fork entry ${requested} is not on source branch ${JSON.stringify(options.branch)}`);
+		return { entryIds: selected, branchPlan: { branch: options.branch, destinationTip } };
+	}
+
+	private projectForkValues(values: readonly ValueCopyRow[], selection: ForkSelection, options: ForkOptions): ValueCopyRow[] {
+		const branchPlan = options.scope === "branch" ? selection.branchPlan : undefined;
+		return values.flatMap((value) => {
+			const { namespace, value_key: key } = value;
+			if (namespace === "pi.session.name") return [value];
+			if (namespace === "pi.entry.label") return selection.entryIds.has(key) ? [value] : [];
+			if (namespace === "pi.branch.tip") {
+				if (options.scope === "tree") return [value];
+				return key === branchPlan?.branch ? [{ ...value, value: branchPlan.destinationTip }] : [];
+			}
+			if (namespace === "pi.lane.config") {
+				return options.scope === "tree" || key === branchPlan?.branch ? [value] : [];
+			}
+			if (namespace === "pi.lane.state") {
+				return options.scope === "tree" || key === branchPlan?.branch ? [{ ...value, value: IDLE_LANE_STATE }] : [];
+			}
+			if (namespace === "pi.result" || namespace.startsWith("pi.op.") || namespace.startsWith("pi.pending.")) return [];
+			if (namespace === "pi" || namespace.startsWith("pi.")) throw new Error(`Unknown reserved fork namespace: ${namespace}`);
+			return options.scope === "tree" ? [value] : [];
+		});
+	}
+
+	private projectForkLists(lists: readonly ListCopyRow[], options: ForkOptions): ListCopyRow[] {
+		if (options.scope === "branch") return [];
+		return lists.flatMap((list) => {
+			if (list.namespace === "pi.result" || list.namespace.startsWith("pi.op.") || list.namespace.startsWith("pi.pending.")) return [];
+			if (list.namespace === "pi" || list.namespace.startsWith("pi.")) {
+				throw new Error(`Unknown reserved fork namespace: ${list.namespace}`);
+			}
+			return [list];
+		});
 	}
 
 	private assertOpen(): void {

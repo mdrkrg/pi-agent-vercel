@@ -1,4 +1,5 @@
 import {
+	createSessionRepoForkConformance,
 	createSessionRepoLifecycleConformance,
 	createSessionRepoMessageConformance,
 	createSessionRepoOwnershipConformance,
@@ -29,6 +30,7 @@ describe.skipIf(databaseUrl === undefined)("Postgres SessionRepo contract", () =
 		...createSessionRepoLifecycleConformance(sessionRepoFactory),
 		...createSessionRepoMessageConformance(sessionRepoFactory),
 		...createSessionRepoOwnershipConformance(sessionRepoFactory),
+		...createSessionRepoForkConformance(sessionRepoFactory),
 	]);
 
 	async function sessionRepoFactory(): Promise<PostgresSessionRepo> {

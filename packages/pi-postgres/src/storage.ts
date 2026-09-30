@@ -172,6 +172,11 @@ export class PostgresStorage implements Storage {
 		return result;
 	}
 
+	/** Wait until all writes admitted through this storage have settled. */
+	whenIdle(): Promise<void> {
+		return this.commitQueue;
+	}
+
 	private async commitNow(writes: Write[]): Promise<CommitResult> {
 		if (writes.length === 0) throw new Error("Storage commit requires at least one write");
 		return this.executor.transaction(async (transaction) => {
