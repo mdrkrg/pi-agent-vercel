@@ -186,6 +186,7 @@ export class DriveJobRepo {
 		const values: unknown[] = [job.id, ownerId, job.claimEpoch, status, options.availableAt, this.clock()];
 		const sets = ["status=$4", "available_at=$5", "updated_at=$6"];
 		if (options.deferredHandle !== undefined) { values.push(json(options.deferredHandle)); sets.push(`deferred_handle=$${values.length}::jsonb`); }
+		else sets.push("deferred_handle=NULL");
 		if (options.error !== undefined) { values.push(options.error); sets.push(`last_error=$${values.length}`); }
 		if (options.clearClaim) sets.push("claim_owner=NULL", "claim_expires_at=NULL");
 		const result = await this.executor.query<Row>(`UPDATE agent_drive_jobs SET ${sets.join(", ")} WHERE id=$1 AND status='running' AND claim_owner=$2 AND claim_epoch=$3 RETURNING ${COLUMNS}`, values);
