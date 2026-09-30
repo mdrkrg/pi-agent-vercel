@@ -7,7 +7,8 @@
   "description": "Durable agent runtime proof of concept",
   "scripts": {
     "check": "tsc --noEmit",
-    "test": "vitest run --config vitest.config.ts"
+    "test": "vitest run --config vitest.config.ts",
+    "bench:postgres-agent-loop": "tsx benchmarks/postgres-agent-loop.ts"
   },
   "devEngines": {
     "runtime": {
