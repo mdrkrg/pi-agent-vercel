@@ -16,7 +16,7 @@ import {
 	type SessionLeaseOptions,
 } from "@poc/pi-postgres";
 export { DriveScheduler, FunctionExecutionHost, SandboxExecutionHost, createFunctionHost, createSandboxHost, type AgentExecutionRequest, type AgentExecutionResult, type AgentWorkloadClass, type DriveHost, type ExecutionHost, type SchedulerDecision, type WorkspaceRequirement, type WorkflowState } from "./scheduler.ts";
-export { admitSubmission, readFinalResult, readSubmission, type AuthenticatedRequest, type FinalResultReader, type OperationAcceptor, type Principal, type SessionAuthorizer, type SubmissionStore, type WorkflowStarter } from "./ingress.ts";
+export { admitSubmission, readFinalResult, readSubmission, type AdmissionOptions, type AuthenticatedRequest, type FinalResultReader, type OperationAcceptor, type OperationRecovery, type Principal, type SessionAuthorizer, type SubmissionStore, type WorkflowStarter } from "./ingress.ts";
 export { recordRuntimeEvent, redactSecrets, requireScope, validateRuntimePolicy, workflowPayload, type CredentialBroker, type CredentialLease, type CredentialRequest, type RuntimeEvent, type RuntimeObserver, type RuntimePolicy } from "./hardening.ts";
 export { MemoryWorkspace, type AgentWorkspace, type Command, type CommandResult, type ComputeEnvironment, type ObjectStoreReference, type WorkspaceEntry, type WorkspacePath } from "./workspace.ts";
 export { PostgresRecoveryCoordinator, type RecoveryCoordinatorOptions, type RecoveryPassResult } from "./recovery.ts";

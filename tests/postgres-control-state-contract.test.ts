@@ -12,6 +12,7 @@ describe.skipIf(databaseUrl === undefined)("Postgres control-state contracts", (
 
 	beforeAll(async () => ensurePiPostgresSchema(executor));
 	afterAll(async () => {
+		await executor.query("DELETE FROM agent_drive_jobs WHERE session_id = $1", [sessionId]);
 		await executor.query("DELETE FROM agent_delegated_tasks WHERE parent_submission_id IN (SELECT id FROM agent_submissions WHERE session_id = $1)", [sessionId]);
 		await executor.query("DELETE FROM agent_submissions WHERE session_id = $1", [sessionId]);
 		await executor.close();
@@ -48,6 +49,17 @@ describe.skipIf(databaseUrl === undefined)("Postgres control-state contracts", (
 		expect(first.submission.operationId).toBe("operation-concurrent");
 		expect(second.submission.operationId).toBe("operation-concurrent");
 		expect(accepted).toBe(1);
+	});
+
+	it("atomically attaches an operation and publishes its first drive job", async () => {
+		const submissions = new SubmissionRepo(executor, () => 350);
+		const jobs = new DriveJobRepo(executor, () => 350);
+		const created = await submissions.create({ userId: "u", tenantId: "t", sessionId, clientRequestId: `atomic-${randomUUID()}`, prompt: "hello" });
+		const attached = await submissions.attachOperationAndEnqueue(created.submission.id, "atomic-operation", { sessionId, lane: "main" });
+		expect(attached).toMatchObject({ operationId: "atomic-operation", status: "running" });
+		expect(await jobs.listRecoverable(sessionId)).toEqual([expect.objectContaining({ submissionId: created.submission.id, operationId: "atomic-operation", status: "queued" })]);
+		const retry = await submissions.attachOperationAndEnqueue(created.submission.id, "different-operation", { sessionId, lane: "main" });
+		expect(retry.operationId).toBe("atomic-operation");
 	});
 
 	it("deduplicates delegated work and enforces lifecycle transitions", async () => {

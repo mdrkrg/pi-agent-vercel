@@ -1,6 +1,6 @@
 import type { Context } from "@earendil-works/pi-agent-core/harness/context";
 import type { SessionMetadata } from "@earendil-works/pi-agent-core/harness/session";
-import type { Submission, SubmissionRepo } from "@poc/pi-postgres";
+import type { AdmissionDriveJob, Submission, SubmissionRepo } from "@poc/pi-postgres";
 
 export type Principal = { readonly userId: string; readonly tenantId: string; readonly scopes: readonly string[] };
 export type AuthenticatedRequest = { readonly principal: Principal; readonly session: SessionMetadata; readonly clientRequestId: string; readonly prompt: string };
@@ -13,9 +13,16 @@ export interface SessionAuthorizer {
 export type OperationAcceptor = (submission: Submission, prompt: string, context: Context) => Promise<string>;
 export type SubmissionStore = Pick<SubmissionRepo, "create" | "get" | "attachOperation"> & {
 	withAdmissionLock?: SubmissionRepo["withAdmissionLock"];
+	attachOperationAndEnqueue?: SubmissionRepo["attachOperationAndEnqueue"];
 };
 export type WorkflowStarter = (state: { submissionId: string; sessionId: string; operationId: string }, context: Context) => Promise<void>;
 export type FinalResultReader<T> = (submission: Submission, context: Context) => Promise<T>;
+export type OperationRecovery = (submission: Submission, context: Context) => Promise<string | undefined>;
+export type AdmissionOptions = {
+	readonly lane?: string;
+	readonly recoverOperation?: OperationRecovery;
+	readonly enqueueDriveJob?: (job: AdmissionDriveJob & { submissionId: string; operationId: string }) => Promise<void>;
+};
 
 /** Authentication and session authorization stay at ingress; durable Pi execution starts after admission. */
 export async function admitSubmission(
@@ -25,6 +32,7 @@ export async function admitSubmission(
 	accept: OperationAcceptor,
 	context: Context,
 	startWorkflow?: WorkflowStarter,
+	options: AdmissionOptions = {},
 ): Promise<SubmissionStart> {
 	await authorizer.authorize(request.principal, request.session, context);
 	const created = await repo.create({
@@ -40,8 +48,14 @@ export async function admitSubmission(
 	const admit = async (locked: Submission): Promise<Submission> => {
 		let submission = locked;
 		if (submission.operationId === null) {
-			const operationId = await accept(submission, request.prompt, context);
-			submission = await repo.attachOperation(submission.id, operationId);
+			const recovered = options.recoverOperation === undefined ? undefined : await options.recoverOperation(submission, context);
+			const operationId = recovered ?? await accept(submission, request.prompt, context);
+			if (repo.attachOperationAndEnqueue !== undefined && options.enqueueDriveJob === undefined) {
+				submission = await repo.attachOperationAndEnqueue(submission.id, operationId, { sessionId: submission.sessionId, lane: options.lane ?? "main" });
+			} else {
+				submission = await repo.attachOperation(submission.id, operationId);
+				if (options.enqueueDriveJob !== undefined) await options.enqueueDriveJob({ submissionId: submission.id, operationId, sessionId: submission.sessionId, lane: options.lane ?? "main" });
+			}
 		}
 		if (startWorkflow !== undefined && submission.operationId !== null) {
 			await startWorkflow({ submissionId: submission.id, sessionId: submission.sessionId, operationId: submission.operationId }, context);

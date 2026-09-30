@@ -27,6 +27,12 @@ export type CreateSubmission = {
 	readonly prompt: string;
 	readonly now?: number;
 };
+
+export type AdmissionDriveJob = {
+	readonly sessionId: string;
+	readonly lane: string;
+	readonly availableAt?: number;
+};
 const ALLOWED: Record<SubmissionStatus, readonly SubmissionStatus[]> = {
 	accepted: ["running", "cancelled"], running: ["waiting", "completed", "failed", "cancelled"],
 	waiting: ["running", "cancelled"], completed: [], failed: [], cancelled: [],
@@ -108,6 +114,41 @@ export class SubmissionRepo {
 			if (existing?.operationId !== null && existing !== undefined) return existing;
 			throw error;
 		}
+	}
+
+	/** Atomically attaches Pi identity and publishes its first durable drive job. */
+	async attachOperationAndEnqueue(id: string, operationId: string, job: AdmissionDriveJob): Promise<Submission> {
+		if (operationId.length === 0 || job.sessionId.length === 0 || job.lane.length === 0) throw new Error("Admission operation and job identity fields must not be empty");
+		const now = this.clock();
+		const availableAt = job.availableAt ?? now;
+		if (!Number.isSafeInteger(availableAt)) throw new Error("Admission drive job availableAt must be a safe integer");
+		return this.executor.transaction(async (transaction) => {
+			const current = await transaction.query<SubmissionRow>(`SELECT ${COLUMNS} FROM agent_submissions WHERE id=$1 FOR UPDATE`, [id]);
+			const row = current.rows[0];
+			if (row === undefined) throw new Error(`Unknown submission: ${id}`);
+			if (row.operation_id === null) {
+				if (row.status !== "accepted") throw new Error(`Submission transition rejected: ${id}`);
+				const attached = await transaction.query<SubmissionRow>(
+					`UPDATE agent_submissions SET operation_id=$2, status='running', updated_at=$3 WHERE id=$1 AND status='accepted' RETURNING ${COLUMNS}`,
+					[id, operationId, now],
+				);
+				if (attached.rows[0] === undefined) throw new Error(`Submission transition rejected: ${id}`);
+			} else if (row.operation_id !== operationId) {
+				return fromRow(row);
+			}
+			const updated = await transaction.query<SubmissionRow>(`SELECT ${COLUMNS} FROM agent_submissions WHERE id=$1`, [id]);
+			const submission = updated.rows[0];
+			if (submission === undefined) throw new Error(`Submission disappeared during admission: ${id}`);
+			if (submission.status === "running") {
+				await transaction.query(
+					`INSERT INTO agent_drive_jobs (id, submission_id, session_id, lane, operation_id, status, attempt_count, available_at, deferred_handle, claim_owner, claim_epoch, claim_expires_at, last_error, created_at, updated_at)
+					 VALUES ($1,$2,$3,$4,$5,'queued',0,$6,NULL,NULL,0,NULL,NULL,$7,$7)
+					 ON CONFLICT (session_id, lane, operation_id) DO NOTHING`,
+					[randomUUID(), id, job.sessionId, job.lane, operationId, availableAt, now],
+				);
+			}
+			return fromRow(submission);
+		});
 	}
 
 	async transition(id: string, from: readonly SubmissionStatus[], update: { status: SubmissionStatus; operationId?: string; resultRef?: string; errorCode?: string }): Promise<Submission> {

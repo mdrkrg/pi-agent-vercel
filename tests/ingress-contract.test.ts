@@ -55,6 +55,27 @@ describe("ingress contract", () => {
 		expect(workflow).toEqual({ submissionId: "sub-1", sessionId: "s-1", operationId: "op-3" });
 	});
 
+	it("reconciles an accepted operation and publishes its durable drive identity", async () => {
+		const repo = store();
+		let accepts = 0;
+		let enqueued: { submissionId: string; operationId: string; sessionId: string; lane: string } | undefined;
+		const admitted = await admitSubmission(
+			{ principal, session, clientRequestId: "req-recover", prompt: "hello" },
+			{ authorize: async () => undefined },
+			repo,
+			async () => `fresh-${++accepts}`,
+			BACKGROUND_CONTEXT,
+			undefined,
+			{
+				recoverOperation: async () => "recovered-op",
+				enqueueDriveJob: async (job) => { enqueued = job; },
+			},
+		);
+		expect(accepts).toBe(0);
+		expect(admitted.submission.operationId).toBe("recovered-op");
+		expect(enqueued).toEqual({ submissionId: "sub-1", operationId: "recovered-op", sessionId: "s-1", lane: "main" });
+	});
+
 	it("reads the final result through durable state after authorization", async () => {
 		const repo = store(true);
 		const admitted = await admitSubmission({ principal, session, clientRequestId: "req-4", prompt: "hello" }, { authorize: async () => undefined }, repo, async () => "op-4", BACKGROUND_CONTEXT);
