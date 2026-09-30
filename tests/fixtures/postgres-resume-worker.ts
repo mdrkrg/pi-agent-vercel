@@ -31,10 +31,7 @@ try {
 				const admission = await acceptPrompt(lane, "resume me", BACKGROUND_CONTEXT);
 				if (!admission.ok) throw new Error(`accept failed: ${admission.error.message}`);
 				await opened.harness.close(BACKGROUND_CONTEXT);
-				process.stdout.write(
-					`${JSON.stringify({ operationId: admission.value.operationId, sessionId, createdAt: session.metadata.createdAt })}\n`,
-					() => process.exit(0),
-				);
+				process.stdout.write(`${JSON.stringify({ operationId: admission.value.operationId, sessionId, createdAt: session.metadata.createdAt })}\n`);
 			} finally {
 				await session.close(BACKGROUND_CONTEXT);
 			}
@@ -60,13 +57,12 @@ try {
 		await opened.harness.close(BACKGROUND_CONTEXT);
 		await session.close(BACKGROUND_CONTEXT);
 		await repo.close(BACKGROUND_CONTEXT);
-		process.stdout.write(
-			`${JSON.stringify({ status: result?.status, entries: entries.map((entry) => entry.type) })}\n`,
-			() => process.exit(0),
-		);
+		process.stdout.write(`${JSON.stringify({ status: result?.status, entries: entries.map((entry) => entry.type) })}\n`);
 	} else {
 		throw new Error(`Unknown worker mode: ${String(mode)}`);
 	}
+	await executor.close();
 } catch (error) {
+	await executor.close().catch(() => undefined);
 	process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`, () => process.exit(1));
 }

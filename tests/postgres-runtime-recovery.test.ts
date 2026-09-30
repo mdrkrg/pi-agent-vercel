@@ -6,6 +6,7 @@ import { deletePiPostgresSession, ensurePiPostgresSchema, PgExecutor } from "../
 
 const databaseUrl = process.env.DATABASE_URL;
 const workerPath = fileURLToPath(new URL("./fixtures/postgres-resume-worker.ts", import.meta.url));
+const tsxPath = fileURLToPath(new URL("../node_modules/tsx/dist/cli.mjs", import.meta.url));
 
 describe.skipIf(databaseUrl === undefined)("fresh-process Agent recovery", () => {
 	const executor = new PgExecutor({ connectionString: databaseUrl });
@@ -30,7 +31,7 @@ describe.skipIf(databaseUrl === undefined)("fresh-process Agent recovery", () =>
 
 	function runWorker(workerMode: "start" | "resume", sessionId: string, operationId?: string): Promise<WorkerResult> {
 		return new Promise((resolve) => {
-			const child = spawn(process.execPath, ["--experimental-strip-types", workerPath, workerMode], {
+			const child = spawn(process.execPath, [tsxPath, workerPath, workerMode], {
 				env: {
 					...process.env,
 					DATABASE_URL: databaseUrl,

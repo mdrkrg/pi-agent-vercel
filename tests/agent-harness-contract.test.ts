@@ -3,7 +3,7 @@ import { MemorySessionRepo } from "@earendil-works/pi-agent-core/harness/session
 import type { AgentHarnessTool } from "@earendil-works/pi-agent-core";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { acceptPrompt, driveOperation, openAgentHarness } from "../packages/agent-runtime/src/index.ts";
+import { acceptPrompt, driveOperation, openAgentHarness, requestOperationAbort } from "../packages/agent-runtime/src/index.ts";
 
 describe("AgentHarness runtime contract", () => {
 	it("accepts, drives, closes, and reopens a text operation", async () => {
@@ -106,6 +106,25 @@ describe("AgentHarness runtime contract", () => {
 			userId: "user-1",
 		});
 		expect(calls[0]?.invocationId).toBeTruthy();
+		await opened.harness.close(BACKGROUND_CONTEXT);
+		await session.close(BACKGROUND_CONTEXT);
+		await repo.close(BACKGROUND_CONTEXT);
+	});
+
+	it("records a durable abort request before a drive pass starts", async () => {
+		const models = createModels();
+		const faux = fauxProvider();
+		models.setProvider(faux.provider);
+		faux.setResponses([fauxAssistantMessage("will not run")]);
+		const repo = new MemorySessionRepo();
+		const session = await repo.create({ id: "memory-abort-session" }, BACKGROUND_CONTEXT);
+		const opened = await openAgentHarness({ session, models, model: faux.getModel() }, BACKGROUND_CONTEXT);
+		const lane = await opened.harness.lane("main", BACKGROUND_CONTEXT);
+		const admission = await acceptPrompt(lane, "abort me", BACKGROUND_CONTEXT);
+		if (!admission.ok) throw admission.error;
+		const aborted = await requestOperationAbort(lane, admission.value.operationId, BACKGROUND_CONTEXT);
+		expect(aborted.ok).toBe(true);
+		if (aborted.ok) expect(aborted.value.newlyRequested).toBe(true);
 		await opened.harness.close(BACKGROUND_CONTEXT);
 		await session.close(BACKGROUND_CONTEXT);
 		await repo.close(BACKGROUND_CONTEXT);
