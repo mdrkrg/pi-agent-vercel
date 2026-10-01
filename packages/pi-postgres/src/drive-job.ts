@@ -168,6 +168,12 @@ export class DriveJobRepo {
 		return this.updateClaim(job, ownerId, "completed", { availableAt: this.clock(), clearClaim: true });
 	}
 
+	async renew(job: DriveJob, ownerId: string, ttlMs = 90_000): Promise<void> {
+		positiveInteger(ttlMs, "Drive job claim TTL");
+		const result = await this.executor.query(`UPDATE agent_drive_jobs SET claim_expires_at=now()+($4::double precision * interval '1 millisecond') WHERE id=$1 AND status='running' AND claim_owner=$2 AND claim_epoch=$3 AND claim_expires_at > now()`, [job.id, ownerId, job.claimEpoch, ttlMs]);
+		if (result.rowCount !== 1) throw new Error(`Drive job claim rejected: ${job.id}`);
+	}
+
 	async reschedule(job: DriveJob, ownerId: string, options: { availableAt: number; deferredHandle?: unknown; error?: string }): Promise<DriveJob> {
 		if (!Number.isSafeInteger(options.availableAt)) throw new Error("Drive job availableAt must be a safe integer");
 		return this.updateClaim(job, ownerId, "waiting", { availableAt: options.availableAt, deferredHandle: options.deferredHandle, ...(options.error === undefined ? {} : { error: options.error }), clearClaim: true });
@@ -189,7 +195,7 @@ export class DriveJobRepo {
 		else sets.push("deferred_handle=NULL");
 		if (options.error !== undefined) { values.push(options.error); sets.push(`last_error=$${values.length}`); }
 		if (options.clearClaim) sets.push("claim_owner=NULL", "claim_expires_at=NULL");
-		const result = await this.executor.query<Row>(`UPDATE agent_drive_jobs SET ${sets.join(", ")} WHERE id=$1 AND status='running' AND claim_owner=$2 AND claim_epoch=$3 RETURNING ${COLUMNS}`, values);
+		const result = await this.executor.query<Row>(`UPDATE agent_drive_jobs SET ${sets.join(", ")} WHERE id=$1 AND status='running' AND claim_owner=$2 AND claim_epoch=$3 AND claim_expires_at > now() RETURNING ${COLUMNS}`, values);
 		if (result.rows[0] === undefined) throw new Error(`Drive job claim rejected: ${job.id}`);
 		return fromRow(result.rows[0]);
 	}
