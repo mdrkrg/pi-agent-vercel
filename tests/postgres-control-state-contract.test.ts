@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { DelegatedTaskRepo, DriveJobRepo, ensurePiPostgresSchema, purgeSubmissionControlState, PgExecutor, SubmissionRepo } from "../packages/pi-postgres/src/index.ts";
 import { admitSubmission } from "../packages/agent-runtime/src/index.ts";
 import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/harness/context";
@@ -11,6 +11,9 @@ describe.skipIf(databaseUrl === undefined)("Postgres control-state contracts", (
 	const sessionId = `control-${randomUUID()}`;
 
 	beforeAll(async () => ensurePiPostgresSchema(executor));
+	beforeEach(async () => {
+		await executor.query("DELETE FROM agent_drive_jobs WHERE session_id = $1", [sessionId]);
+	});
 	afterAll(async () => {
 		await executor.query("DELETE FROM agent_drive_jobs WHERE session_id = $1", [sessionId]);
 		await executor.query("DELETE FROM agent_delegated_tasks WHERE parent_submission_id IN (SELECT id FROM agent_submissions WHERE session_id = $1)", [sessionId]);

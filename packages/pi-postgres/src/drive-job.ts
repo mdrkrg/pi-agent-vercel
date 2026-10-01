@@ -157,7 +157,7 @@ export class DriveJobRepo {
 				SET status='running', attempt_count=jobs.attempt_count+1, claim_owner=$3,
 					claim_epoch=jobs.claim_epoch+1, claim_expires_at=now()+($4::double precision * interval '1 millisecond'), updated_at=$1
 				FROM candidates WHERE jobs.id=candidates.id
-				RETURNING ${COLUMNS}`,
+				RETURNING ${COLUMNS.split(", ").map((column) => `jobs.${column}`).join(", ")}`,
 				[now, limit, ownerId, ttlMs],
 			);
 			return result.rows.map(fromRow);
