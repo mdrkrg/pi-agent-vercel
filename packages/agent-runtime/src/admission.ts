@@ -1,7 +1,7 @@
 import { AgentHarness, LaneBusy, type AgentHarnessOptions } from "@earendil-works/pi-agent-core";
 import type { Context } from "@earendil-works/pi-agent-core/harness/context";
 import { operationMeta, operationResult } from "@earendil-works/pi-agent-core/harness/session";
-import { PostgresSessionRepo, SessionLeaseBusyError, SessionLeaseManager, SubmissionRepo, type SessionLeaseOptions, type Submission } from "@poc/pi-postgres";
+import { PostgresSessionRepo, SessionLeaseBusyError, SessionLeaseManager, SubmissionRepo, type SessionLeaseOptions, type Submission } from "../../pi-postgres/src/index.ts";
 import { withSessionOwnership } from "./ownership.ts";
 import type { AuthenticatedRequest, SessionAuthorizer, SubmissionStart } from "./ingress.ts";
 

@@ -1,7 +1,7 @@
 import { AgentHarness, type AgentHarnessOptions, type DriveResult, type OpenOperation } from "@earendil-works/pi-agent-core";
 import type { Context } from "@earendil-works/pi-agent-core/harness/context";
 import type { SessionMetadata } from "@earendil-works/pi-agent-core/harness/session";
-import { DriveJobRepo, PostgresSessionRepo, SessionLeaseBusyError, SessionLeaseManager, type DriveJob, type SessionLeaseOptions } from "@poc/pi-postgres";
+import { DriveJobRepo, PostgresSessionRepo, SessionLeaseBusyError, SessionLeaseManager, type DriveJob, type SessionLeaseOptions } from "../../pi-postgres/src/index.ts";
 import { withSessionOwnership } from "./ownership.ts";
 
 export type RecoveryCoordinatorOptions<TContext extends object | undefined> = Omit<AgentHarnessOptions<TContext>, "session"> & {

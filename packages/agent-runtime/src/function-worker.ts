@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { AgentHarnessOptions } from "@earendil-works/pi-agent-core";
 import { withAbortSignal, type Context } from "@earendil-works/pi-agent-core/harness/context";
-import { DriveJobRepo, PostgresSessionRepo, SessionLeaseManager, SubmissionRepo, type SessionLeaseOptions } from "@poc/pi-postgres";
+import { DriveJobRepo, PostgresSessionRepo, SessionLeaseManager, SubmissionRepo, type SessionLeaseOptions } from "../../pi-postgres/src/index.ts";
 import { PostgresAdmission, type SubmissionHarnessFactory } from "./admission.ts";
 import { PostgresRecoveryCoordinator } from "./recovery.ts";
 import { PostgresSubmissionReader } from "./submission-reader.ts";

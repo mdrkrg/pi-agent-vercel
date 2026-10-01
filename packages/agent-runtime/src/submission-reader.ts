@@ -1,6 +1,6 @@
 import type { Context } from "@earendil-works/pi-agent-core/harness/context";
 import type { Entry, OperationResultRecord } from "@earendil-works/pi-agent-core/harness/session";
-import { PostgresSessionRepo, SubmissionRepo, type Submission } from "@poc/pi-postgres";
+import { PostgresSessionRepo, SubmissionRepo, type Submission } from "../../pi-postgres/src/index.ts";
 import type { Principal } from "./ingress.ts";
 
 export type SubmissionView = {

@@ -10,11 +10,12 @@ import {
 } from "@earendil-works/pi-agent-core";
 import type { Context } from "@earendil-works/pi-agent-core/harness/context";
 import type { SessionMetadata } from "@earendil-works/pi-agent-core/harness/session";
+// Relative workspace imports let Vercel trace sources and rewrite .ts extensions to .js.
 import {
 	PostgresSessionRepo,
 	SessionLeaseManager,
 	type SessionLeaseOptions,
-} from "@poc/pi-postgres";
+} from "../../pi-postgres/src/index.ts";
 import { withSessionOwnership } from "./ownership.ts";
 export { DriveScheduler, FunctionExecutionHost, SandboxExecutionHost, createFunctionHost, createSandboxHost, type AgentExecutionRequest, type AgentExecutionResult, type AgentWorkloadClass, type DriveHost, type ExecutionHost, type SchedulerDecision, type WorkspaceRequirement, type WorkflowState } from "./scheduler.ts";
 export { admitSubmission, readFinalResult, readSubmission, type AdmissionOptions, type AuthenticatedRequest, type FinalResultReader, type OperationAcceptor, type OperationRecovery, type Principal, type SessionAuthorizer, type SubmissionStore, type WorkflowStarter } from "./ingress.ts";

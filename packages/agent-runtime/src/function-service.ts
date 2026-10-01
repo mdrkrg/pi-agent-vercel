@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AgentHarnessTool } from "@earendil-works/pi-agent-core";
 import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/harness/context";
 import type { Api, Model, Models } from "@earendil-works/pi-ai";
-import { DriveJobRepo, ensurePiPostgresSchema, PgExecutor, PostgresSessionRepo, SessionLeaseManager, SubmissionRepo, type SessionLeaseOptions } from "@poc/pi-postgres";
+import { DriveJobRepo, ensurePiPostgresSchema, PgExecutor, PostgresSessionRepo, SessionLeaseManager, SubmissionRepo, type SessionLeaseOptions } from "../../pi-postgres/src/index.ts";
 import { PostgresAdmission } from "./admission.ts";
 import { PostgresFunctionWorker } from "./function-worker.ts";
 import type { Principal } from "./ingress.ts";

@@ -1,6 +1,6 @@
 import type { Context } from "@earendil-works/pi-agent-core/harness/context";
 import type { SessionMetadata } from "@earendil-works/pi-agent-core/harness/session";
-import type { AdmissionDriveJob, Submission, SubmissionRepo } from "@poc/pi-postgres";
+import type { AdmissionDriveJob, Submission, SubmissionRepo } from "../../pi-postgres/src/index.ts";
 
 export type Principal = { readonly userId: string; readonly tenantId: string; readonly scopes: readonly string[] };
 export type AuthenticatedRequest = { readonly principal: Principal; readonly session: SessionMetadata; readonly clientRequestId: string; readonly prompt: string };

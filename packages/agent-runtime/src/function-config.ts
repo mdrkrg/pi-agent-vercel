@@ -1,7 +1,7 @@
 import { createModels, fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
-import { PgExecutor } from "@poc/pi-postgres";
+import { PgExecutor } from "../../pi-postgres/src/index.ts";
 import { FunctionService } from "./function-service.ts";
 
 function required(env: NodeJS.ProcessEnv, key: string): string {

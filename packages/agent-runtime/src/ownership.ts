@@ -1,6 +1,6 @@
 import { withAbortSignal, withoutAbortSignal, type Context } from "@earendil-works/pi-agent-core/harness/context";
 import type { Session } from "@earendil-works/pi-agent-core/harness/session";
-import { SessionLeaseLostError, SessionLeaseManager, type SessionLease, type SessionLeaseOptions } from "@poc/pi-postgres";
+import { SessionLeaseLostError, SessionLeaseManager, type SessionLease, type SessionLeaseOptions } from "../../pi-postgres/src/index.ts";
 
 export class DriveDeadlineExceeded extends Error {
 	readonly name = "DriveDeadlineExceeded";
