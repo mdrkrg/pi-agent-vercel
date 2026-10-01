@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { SqlExecutor } from "./sql.ts";
+import { assertSessionLease, type SessionLease } from "./lease.ts";
 
 export type SubmissionStatus = "accepted" | "running" | "waiting" | "completed" | "failed" | "cancelled";
 
@@ -10,6 +11,7 @@ export type Submission = {
 	readonly sessionId: string;
 	readonly clientRequestId: string;
 	readonly requestHash: string;
+	readonly lane: string;
 	readonly operationId: string | null;
 	readonly status: SubmissionStatus;
 	readonly resultRef: string | null;
@@ -25,6 +27,7 @@ export type CreateSubmission = {
 	readonly sessionId: string;
 	readonly clientRequestId: string;
 	readonly prompt: string;
+	readonly lane?: string;
 	readonly now?: number;
 };
 
@@ -32,7 +35,9 @@ export type AdmissionDriveJob = {
 	readonly sessionId: string;
 	readonly lane: string;
 	readonly availableAt?: number;
+	readonly lease?: SessionLease;
 };
+export type SubmissionRequest = { readonly submissionId: string; readonly lane: string; readonly operationId: string; readonly prompt: string };
 const ALLOWED: Record<SubmissionStatus, readonly SubmissionStatus[]> = {
 	accepted: ["running", "cancelled"], running: ["waiting", "completed", "failed", "cancelled"],
 	waiting: ["running", "cancelled"], completed: [], failed: [], cancelled: [],
@@ -43,7 +48,7 @@ export function submissionRequestHash(prompt: string): string {
 }
 
 type SubmissionRow = {
-	id: string; user_id: string; tenant_id: string; session_id: string; client_request_id: string; request_hash: string;
+	id: string; user_id: string; tenant_id: string; session_id: string; client_request_id: string; request_hash: string; lane: string;
 	operation_id: string | null; status: SubmissionStatus; result_ref: string | null;
 	error_code: string | null; created_at: string | number; updated_at: string | number;
 };
@@ -56,12 +61,12 @@ function numberValue(value: string | number): number {
 
 function fromRow(row: SubmissionRow): Submission {
 	return { id: row.id, userId: row.user_id, tenantId: row.tenant_id, sessionId: row.session_id,
-	clientRequestId: row.client_request_id, requestHash: row.request_hash, operationId: row.operation_id,
+	clientRequestId: row.client_request_id, requestHash: row.request_hash, lane: row.lane, operationId: row.operation_id,
 		status: row.status, resultRef: row.result_ref, errorCode: row.error_code,
 		createdAt: numberValue(row.created_at), updatedAt: numberValue(row.updated_at) };
 }
 
-const COLUMNS = "id, user_id, tenant_id, session_id, client_request_id, request_hash, operation_id, status, result_ref, error_code, created_at, updated_at";
+const COLUMNS = "id, user_id, tenant_id, session_id, client_request_id, request_hash, lane, operation_id, status, result_ref, error_code, created_at, updated_at";
 
 /** Durable product-level request state. It stores references to Pi state, never its transcript or credentials. */
 export class SubmissionRepo {
@@ -73,20 +78,26 @@ export class SubmissionRepo {
 		const id = input.id ?? randomUUID();
 		const now = input.now ?? this.clock();
 		const requestHash = submissionRequestHash(input.prompt);
+		const lane = input.lane ?? "main";
+		if (lane.length === 0) throw new Error("Submission lane must not be empty");
 		return this.executor.transaction(async (transaction) => {
 			const result = await transaction.query<SubmissionRow>(
-				`INSERT INTO agent_submissions (${COLUMNS}) VALUES ($1,$2,$3,$4,$5,$6,NULL,'accepted',NULL,NULL,$7,$7)
+				`INSERT INTO agent_submissions (${COLUMNS}) VALUES ($1,$2,$3,$4,$5,$6,$8,NULL,'accepted',NULL,NULL,$7,$7)
 				 ON CONFLICT (user_id, tenant_id, session_id, client_request_id) DO NOTHING
 				 RETURNING ${COLUMNS}`,
-				[id, input.userId, input.tenantId, input.sessionId, input.clientRequestId, requestHash, now],
+				[id, input.userId, input.tenantId, input.sessionId, input.clientRequestId, requestHash, now, lane],
 			);
-			if (result.rows[0] !== undefined) return { submission: fromRow(result.rows[0]), created: true };
+			if (result.rows[0] !== undefined) {
+				await transaction.query("INSERT INTO agent_submission_requests (submission_id, lane, operation_id, prompt) VALUES ($1,$2,$1,$3)", [id, lane, input.prompt]);
+				return { submission: fromRow(result.rows[0]), created: true };
+			}
 			const existing = await transaction.query<SubmissionRow>(
 				`SELECT ${COLUMNS} FROM agent_submissions WHERE user_id=$1 AND tenant_id=$2 AND session_id=$3 AND client_request_id=$4 FOR SHARE`,
 				[input.userId, input.tenantId, input.sessionId, input.clientRequestId],
 			);
 			if (existing.rows[0] === undefined) throw new Error("Submission disappeared during idempotent create");
 			if (existing.rows[0].request_hash !== requestHash) throw new Error("Submission idempotency key reused with different prompt");
+			if (existing.rows[0].lane !== lane) throw new Error("Submission idempotency key reused with different lane");
 			return { submission: fromRow(existing.rows[0]), created: false };
 		});
 	}
@@ -94,6 +105,18 @@ export class SubmissionRepo {
 	async get(id: string): Promise<Submission | undefined> {
 		const result = await this.executor.query<SubmissionRow>(`SELECT ${COLUMNS} FROM agent_submissions WHERE id=$1`, [id]);
 		return result.rows[0] === undefined ? undefined : fromRow(result.rows[0]);
+	}
+
+	async getRequest(id: string): Promise<SubmissionRequest | undefined> {
+		const result = await this.executor.query<{ submission_id: string; lane: string; operation_id: string; prompt: string }>("SELECT submission_id, lane, operation_id, prompt FROM agent_submission_requests WHERE submission_id=$1", [id]);
+		const row = result.rows[0];
+		return row === undefined ? undefined : { submissionId: row.submission_id, lane: row.lane, operationId: row.operation_id, prompt: row.prompt };
+	}
+
+	async listPending(limit = 100): Promise<Submission[]> {
+		if (!Number.isSafeInteger(limit) || limit <= 0) throw new Error("Submission scan limit must be positive");
+		const result = await this.executor.query<SubmissionRow>(`SELECT ${COLUMNS} FROM agent_submissions WHERE status='accepted' AND operation_id IS NULL ORDER BY created_at, id LIMIT $1`, [limit]);
+		return result.rows.map(fromRow);
 	}
 
 	/** Serializes admission for one submission across Function processes. */
@@ -123,9 +146,15 @@ export class SubmissionRepo {
 		const availableAt = job.availableAt ?? now;
 		if (!Number.isSafeInteger(availableAt)) throw new Error("Admission drive job availableAt must be a safe integer");
 		return this.executor.transaction(async (transaction) => {
+			if (job.lease !== undefined) {
+				if (job.lease.sessionId !== job.sessionId) throw new Error("Admission lease session mismatch");
+				await assertSessionLease(transaction, job.lease);
+			}
 			const current = await transaction.query<SubmissionRow>(`SELECT ${COLUMNS} FROM agent_submissions WHERE id=$1 FOR UPDATE`, [id]);
 			const row = current.rows[0];
 			if (row === undefined) throw new Error(`Unknown submission: ${id}`);
+			if (row.session_id !== job.sessionId) throw new Error("Admission job session mismatch");
+			if (row.lane !== job.lane) throw new Error("Admission job lane mismatch");
 			if (row.operation_id === null) {
 				if (row.status !== "accepted") throw new Error(`Submission transition rejected: ${id}`);
 				const attached = await transaction.query<SubmissionRow>(
@@ -140,12 +169,16 @@ export class SubmissionRepo {
 			const submission = updated.rows[0];
 			if (submission === undefined) throw new Error(`Submission disappeared during admission: ${id}`);
 			if (submission.status === "running") {
-				await transaction.query(
+				const published = await transaction.query(
 					`INSERT INTO agent_drive_jobs (id, submission_id, session_id, lane, operation_id, status, attempt_count, available_at, deferred_handle, claim_owner, claim_epoch, claim_expires_at, last_error, created_at, updated_at)
 					 VALUES ($1,$2,$3,$4,$5,'queued',0,$6,NULL,NULL,0,NULL,NULL,$7,$7)
-					 ON CONFLICT (session_id, lane, operation_id) DO NOTHING`,
+					 ON CONFLICT (session_id, lane, operation_id) DO UPDATE
+					 SET submission_id=COALESCE(agent_drive_jobs.submission_id, EXCLUDED.submission_id)
+					 WHERE agent_drive_jobs.submission_id IS NULL OR agent_drive_jobs.submission_id=EXCLUDED.submission_id RETURNING id`,
 					[randomUUID(), id, job.sessionId, job.lane, operationId, availableAt, now],
 				);
+				if (published.rowCount !== 1) throw new Error("Admission job submission mismatch");
+				await transaction.query("DELETE FROM agent_submission_requests WHERE submission_id=$1", [id]);
 			}
 			return fromRow(submission);
 		});

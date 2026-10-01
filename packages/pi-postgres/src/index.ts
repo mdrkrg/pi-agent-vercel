@@ -10,7 +10,7 @@ export {
 	type SessionLease,
 	type SessionLeaseOptions,
 } from "./lease.ts";
-export { SubmissionRepo, submissionRequestHash, type AdmissionDriveJob, type CreateSubmission, type Submission, type SubmissionStatus } from "./submission.ts";
+export { SubmissionRepo, submissionRequestHash, type AdmissionDriveJob, type CreateSubmission, type Submission, type SubmissionRequest, type SubmissionStatus } from "./submission.ts";
 export { DelegatedTaskRepo, type DelegatedTask, type DelegatedTaskStatus } from "./delegated-task.ts";
 export { DriveJobRepo, type DriveJob, type DriveJobClaim, type DriveJobStatus, type EnqueueDriveJob } from "./drive-job.ts";
 export { purgeSubmissionControlState } from "./retention.ts";

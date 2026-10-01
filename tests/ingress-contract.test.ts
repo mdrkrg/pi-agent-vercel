@@ -14,7 +14,7 @@ function store(completeOnAttach = false): SubmissionStore {
 			const existing = [...rows.values()].find((row) => row.userId === input.userId && row.tenantId === input.tenantId && row.sessionId === input.sessionId && row.clientRequestId === input.clientRequestId);
 			if (existing !== undefined) return { submission: existing, created: false };
 			const now = input.now ?? 1;
-			const submission: Submission = { id: `sub-${rows.size + 1}`, userId: input.userId, tenantId: input.tenantId, sessionId: input.sessionId, clientRequestId: input.clientRequestId, requestHash: "test-hash", operationId: null, status: "accepted", resultRef: null, errorCode: null, createdAt: now, updatedAt: now };
+			const submission: Submission = { id: `sub-${rows.size + 1}`, userId: input.userId, tenantId: input.tenantId, sessionId: input.sessionId, clientRequestId: input.clientRequestId, requestHash: "test-hash", lane: input.lane ?? "main", operationId: null, status: "accepted", resultRef: null, errorCode: null, createdAt: now, updatedAt: now };
 			rows.set(submission.id, submission); return { submission, created: true };
 		},
 		async get(id) { return rows.get(id); },

@@ -20,6 +20,7 @@ export { admitSubmission, readFinalResult, readSubmission, type AdmissionOptions
 export { recordRuntimeEvent, redactSecrets, requireScope, validateRuntimePolicy, workflowPayload, type CredentialBroker, type CredentialLease, type CredentialRequest, type RuntimeEvent, type RuntimeObserver, type RuntimePolicy } from "./hardening.ts";
 export { MemoryWorkspace, type AgentWorkspace, type Command, type CommandResult, type ComputeEnvironment, type ObjectStoreReference, type WorkspaceEntry, type WorkspacePath } from "./workspace.ts";
 export { PostgresRecoveryCoordinator, type RecoveryCoordinatorOptions, type RecoveryPassResult } from "./recovery.ts";
+export { PostgresAdmission, type PostgresAdmissionOptions, type SubmissionHarnessFactory, type SubmissionHarnessOptions } from "./admission.ts";
 
 export interface OpenAgentHarnessResult<TContext extends object | undefined> {
 	readonly harness: AgentHarnessInstance<TContext>;

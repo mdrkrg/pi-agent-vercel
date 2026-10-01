@@ -41,6 +41,7 @@ export async function admitSubmission(
 		sessionId: request.session.id,
 		clientRequestId: request.clientRequestId,
 		prompt: request.prompt,
+		lane: options.lane ?? "main",
 	});
 	// A retry may observe an accepted row after a process died before it could
 	// publish the Pi operation identity. Re-run admission for that same durable

@@ -90,6 +90,7 @@ CREATE TABLE IF NOT EXISTS agent_submissions (
   session_id TEXT NOT NULL,
   client_request_id TEXT NOT NULL,
   request_hash TEXT NOT NULL,
+  lane TEXT NOT NULL DEFAULT 'main',
   operation_id TEXT,
   status TEXT NOT NULL CHECK (status IN ('accepted', 'running', 'waiting', 'completed', 'failed', 'cancelled')),
   result_ref TEXT,
@@ -100,6 +101,16 @@ CREATE TABLE IF NOT EXISTS agent_submissions (
 );
 
 CREATE INDEX IF NOT EXISTS agent_submissions_session_idx ON agent_submissions (session_id, created_at);
+ALTER TABLE agent_submissions ADD COLUMN IF NOT EXISTS lane TEXT NOT NULL DEFAULT 'main';
+
+-- Retain admission input only until Pi identity and the drive job are published.
+CREATE TABLE IF NOT EXISTS agent_submission_requests (
+  submission_id TEXT PRIMARY KEY REFERENCES agent_submissions(id) ON DELETE CASCADE,
+  lane TEXT NOT NULL,
+  operation_id TEXT NOT NULL,
+  prompt TEXT NOT NULL
+);
+INSERT INTO pi_poc_schema_migrations (version) VALUES ('2026-10-admission-input-v1') ON CONFLICT (version) DO NOTHING;
 
 -- A drive job is a recovery projection and claim record. Pi remains the
 -- authority for operation state; this table only tells workers where to look
