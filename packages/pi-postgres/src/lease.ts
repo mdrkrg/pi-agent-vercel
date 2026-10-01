@@ -107,7 +107,8 @@ export class SessionLeaseManager {
 
 	async release(lease: SessionLease): Promise<void> {
 		await this.executor.query(
-			`DELETE FROM agent_session_leases
+			// Keep the row so a later acquisition cannot reuse a fencing epoch.
+			`UPDATE agent_session_leases SET expires_at = now()
 			 WHERE session_id = $1 AND holder_id = $2 AND fencing_epoch = $3`,
 			[lease.sessionId, lease.holderId, lease.fencingEpoch],
 		);

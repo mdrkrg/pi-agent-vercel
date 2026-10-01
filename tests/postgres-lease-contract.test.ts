@@ -76,4 +76,22 @@ describe.skipIf(databaseUrl === undefined)("Postgres session lease contract", ()
 			await deletePiPostgresSession(executor, sessionId);
 		}
 	});
+
+	it("preserves fencing epochs after release even when a holder id is reused", async () => {
+		const sessionId = `lease-${randomUUID()}`;
+		const manager = new SessionLeaseManager(executor);
+		const first = await manager.acquire(sessionId, { holderId: "reused-owner" });
+		await manager.release(first);
+		const second = await manager.acquire(sessionId, { holderId: "reused-owner" });
+		const staleStorage = new PostgresStorage(executor, sessionId, Date.now, first);
+		try {
+			expect(second.fencingEpoch).toBeGreaterThan(first.fencingEpoch);
+			await manager.release(first);
+			await expect(manager.renew(second)).resolves.toMatchObject({ fencingEpoch: second.fencingEpoch });
+			await expect(staleStorage.commit([setValue(value("lease", "stale"), "should-fail")], BACKGROUND_CONTEXT)).rejects.toBeInstanceOf(SessionLeaseLostError);
+		} finally {
+			await staleStorage.close(BACKGROUND_CONTEXT);
+			await deletePiPostgresSession(executor, sessionId);
+		}
+	});
 });
