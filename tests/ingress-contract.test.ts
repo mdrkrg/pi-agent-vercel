@@ -81,4 +81,23 @@ describe("ingress contract", () => {
 		const admitted = await admitSubmission({ principal, session, clientRequestId: "req-4", prompt: "hello" }, { authorize: async () => undefined }, repo, async () => "op-4", BACKGROUND_CONTEXT);
 		await expect(readFinalResult(repo, admitted.submission.id, principal, BACKGROUND_CONTEXT, async (submission) => `answer:${submission.operationId}`)).resolves.toBe("answer:op-4");
 	});
+
+	it("retries drive publication after the operation identity was attached", async () => {
+		const repo = store();
+		const request = { principal, session, clientRequestId: "req-publish-retry", prompt: "hello" };
+		let accepts = 0;
+		let publications = 0;
+		const options = {
+			enqueueDriveJob: async (job: { operationId: string }) => {
+				expect(job.operationId).toBe("publish-operation");
+				if (++publications === 1) throw new Error("queue unavailable");
+			},
+		};
+		const accept = async () => { accepts++; return "publish-operation"; };
+		await expect(admitSubmission(request, { authorize: async () => undefined }, repo, accept, BACKGROUND_CONTEXT, undefined, options)).rejects.toThrow("queue unavailable");
+		const retried = await admitSubmission(request, { authorize: async () => undefined }, repo, accept, BACKGROUND_CONTEXT, undefined, options);
+		expect(retried.submission.operationId).toBe("publish-operation");
+		expect(accepts).toBe(1);
+		expect(publications).toBe(2);
+	});
 });

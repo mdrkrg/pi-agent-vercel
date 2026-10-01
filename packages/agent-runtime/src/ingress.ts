@@ -54,8 +54,12 @@ export async function admitSubmission(
 				submission = await repo.attachOperationAndEnqueue(submission.id, operationId, { sessionId: submission.sessionId, lane: options.lane ?? "main" });
 			} else {
 				submission = await repo.attachOperation(submission.id, operationId);
-				if (options.enqueueDriveJob !== undefined) await options.enqueueDriveJob({ submissionId: submission.id, operationId, sessionId: submission.sessionId, lane: options.lane ?? "main" });
 			}
+		}
+		// A custom publisher may have failed after attachment. Retry publication
+		// using the attached identity; the publisher must enqueue idempotently.
+		if (options.enqueueDriveJob !== undefined && submission.operationId !== null && (submission.status === "running" || submission.status === "waiting")) {
+			await options.enqueueDriveJob({ submissionId: submission.id, operationId: submission.operationId, sessionId: submission.sessionId, lane: options.lane ?? "main" });
 		}
 		if (startWorkflow !== undefined && submission.operationId !== null) {
 			await startWorkflow({ submissionId: submission.id, sessionId: submission.sessionId, operationId: submission.operationId }, context);
