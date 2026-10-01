@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { SqlExecutor } from "./sql.ts";
 import { assertSessionLease, type SessionLease } from "./lease.ts";
+import type { OperationResultRecord, OperationState } from "@earendil-works/pi-agent-core/harness/session";
 
 export type SubmissionStatus = "accepted" | "running" | "waiting" | "completed" | "failed" | "cancelled";
 
@@ -117,6 +118,33 @@ export class SubmissionRepo {
 		if (!Number.isSafeInteger(limit) || limit <= 0) throw new Error("Submission scan limit must be positive");
 		const result = await this.executor.query<SubmissionRow>(`SELECT ${COLUMNS} FROM agent_submissions WHERE status='accepted' AND operation_id IS NULL ORDER BY created_at, id LIMIT $1`, [limit]);
 		return result.rows.map(fromRow);
+	}
+
+	async listUnsettled(limit = 100): Promise<Submission[]> {
+		if (!Number.isSafeInteger(limit) || limit <= 0) throw new Error("Submission scan limit must be positive");
+		const rows = await this.executor.query<SubmissionRow>(`SELECT ${COLUMNS} FROM agent_submissions WHERE operation_id IS NOT NULL AND status IN ('running','waiting') ORDER BY updated_at, id LIMIT $1`, [limit]);
+		return rows.rows.map(fromRow);
+	}
+
+	async findOperation(sessionId: string, lane: string, operationId: string): Promise<Submission | undefined> {
+		const rows = await this.executor.query<SubmissionRow>(`SELECT ${COLUMNS} FROM agent_submissions WHERE session_id=$1 AND lane=$2 AND operation_id=$3 LIMIT 2`, [sessionId, lane, operationId]);
+		if (rows.rows.length > 1) throw new Error("Ambiguous operation submission identity");
+		return rows.rows[0] === undefined ? undefined : fromRow(rows.rows[0]);
+	}
+
+	/** Rebuild a product projection from Pi; scheduling exceptions never terminalize it. */
+	async reconcileOperation(id: string, result: OperationResultRecord | undefined, state: OperationState | undefined): Promise<Submission> {
+		const submission = await this.get(id);
+		if (submission === undefined || submission.operationId === null) throw new Error("Submission has no operation identity");
+		if (result !== undefined && result.operationId !== submission.operationId) throw new Error("Pi result operation mismatch");
+		if (result === undefined && state === undefined) throw new Error("Pi operation state unavailable");
+		const status: SubmissionStatus = result === undefined
+			? (["assistant.retry_wait", "summary.retry_wait", "deferred.suspended", "deferred.effect_pending"].includes(state!.at) ? "waiting" : "running")
+			: result.status === "aborted" ? "cancelled" : result.status === "failed" ? "failed" : "completed";
+		const ref = result === undefined ? null : `pi.result:${submission.operationId}`;
+		const error = result?.error?.code ?? null;
+		const updated = await this.executor.query<SubmissionRow>(`UPDATE agent_submissions SET status=$3, result_ref=$4, error_code=$5, updated_at=$6 WHERE id=$1 AND operation_id=$2 ${result === undefined ? "AND status IN ('accepted','running','waiting')" : ""} AND (status IS DISTINCT FROM $3 OR result_ref IS DISTINCT FROM $4 OR error_code IS DISTINCT FROM $5) RETURNING ${COLUMNS}`, [id, submission.operationId, status, ref, error, this.clock()]);
+		return updated.rows[0] === undefined ? (await this.get(id))! : fromRow(updated.rows[0]);
 	}
 
 	/** Serializes admission for one submission across Function processes. */

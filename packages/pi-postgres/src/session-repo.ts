@@ -6,6 +6,8 @@ import {
 	type SessionMetadata,
 	type SessionRepo,
 	type ForkOptions,
+	operationMeta, operationState, operationResult,
+	type OperationMeta, type OperationState, type OperationResultRecord, type Entry,
 } from "@earendil-works/pi-agent-core/harness/session";
 import type { Context } from "@earendil-works/pi-agent-core/harness/context";
 import { deletePiPostgresSession, ensurePiPostgresSchema } from "./schema.ts";
@@ -53,6 +55,7 @@ type ForkSelection = {
 };
 
 const IDLE_LANE_STATE = { currentOperationId: null, lastOperationId: null, inbox: [] } as const;
+export type PostgresOperationSnapshot = { readonly meta?: OperationMeta; readonly state?: OperationState; readonly result?: OperationResultRecord };
 
 function toNumber(value: string | number): number {
 	const result = typeof value === "number" ? value : Number(value);
@@ -149,6 +152,27 @@ export class PostgresSessionRepo implements SessionRepo {
 			"SELECT id, created_at, storage_version, parent_session_id FROM pi_poc_sessions ORDER BY id ASC",
 		);
 		return result.rows.map(metadataFromRow);
+	}
+
+	/** One SQL snapshot observes the atomic Pi state/result boundary without opening a writer. */
+	async readOperation(sessionId: string, operationId: string): Promise<PostgresOperationSnapshot> {
+		this.assertOpen();
+		const meta = operationMeta(operationId); const state = operationState(operationId); const result = operationResult(operationId);
+		const rows = await this.executor.query<{ namespace: string; value: unknown }>("SELECT namespace, value FROM pi_poc_storage_values WHERE session_id=$1 AND value_key=$2 AND namespace=ANY($3::text[])", [sessionId, operationId, [meta.namespace, state.namespace, result.namespace]]);
+		const snapshot: { meta?: OperationMeta; state?: OperationState; result?: OperationResultRecord } = {};
+		for (const row of rows.rows) {
+			if (row.namespace === meta.namespace) snapshot.meta = row.value as OperationMeta;
+			else if (row.namespace === state.namespace) snapshot.state = row.value as OperationState;
+			else if (row.namespace === result.namespace) snapshot.result = row.value as OperationResultRecord;
+		}
+		return snapshot;
+	}
+
+	async readEntry(sessionId: string, entryId: string, context: Context): Promise<Entry | undefined> {
+		this.assertOpen();
+		const storage = new PostgresStorage(this.executor, sessionId);
+		try { return (await storage.getEntries([entryId], context)).get(entryId); }
+		finally { await storage.close(context); }
 	}
 
 	async delete(metadata: SessionMetadata, _context: Context): Promise<void> {

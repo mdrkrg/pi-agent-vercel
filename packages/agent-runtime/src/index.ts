@@ -23,6 +23,7 @@ export { MemoryWorkspace, type AgentWorkspace, type Command, type CommandResult,
 export { PostgresRecoveryCoordinator, type RecoveryCoordinatorOptions, type RecoveryPassResult } from "./recovery.ts";
 export { PostgresAdmission, type PostgresAdmissionOptions, type SubmissionHarnessFactory, type SubmissionHarnessOptions } from "./admission.ts";
 export { DriveDeadlineExceeded, withSessionOwnership, type OwnedSession } from "./ownership.ts";
+export { PostgresSubmissionReader, type SubmissionView } from "./submission-reader.ts";
 
 export interface OpenAgentHarnessResult<TContext extends object | undefined> {
 	readonly harness: AgentHarnessInstance<TContext>;
