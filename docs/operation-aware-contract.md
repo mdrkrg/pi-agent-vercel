@@ -27,11 +27,11 @@ The current implementation has the following verified and implemented scope:
 - Fresh-process Agent recovery, tool replay policy, leases, and the application submission boundary have focused contract coverage.
 - `SessionRepo.fork` is implemented using a repeatable-read source snapshot, source-storage commit draining, destination-id reservation, Pi fork namespace projection, fresh idle lane state, and sequence high-water-mark copying. The 10 fork cases cover branch/tree copying, source closure, fork-point ancestry, reserved state exclusion, destination reservation, and the active-source snapshot boundary.
 
-The repository test command skips SQL-backed suites when `DATABASE_URL` is absent. In the current environment, type checking, static validation, and the non-database suites pass; the 21 Storage and 17 SessionRepo SQL conformance cases require a PostgreSQL-backed run. A CI or developer run with `DATABASE_URL` is required before treating those database cases as verified for the current implementation.
+The repository test command skips SQL-backed suites when `DATABASE_URL` is absent. The current implementation has been verified against disposable PostgreSQL 16, including all 21 Storage and 17 SessionRepo conformance cases, ownership loss, admission reconciliation, fresh-process SIGKILL recovery, and authorized result reads. CI also supplies PostgreSQL; a skipped local run remains insufficient evidence for database behavior.
 
 Conceptual operation rows in this document map to Pi's existing namespaced session values (`pi.op.meta`, `pi.op.state`, `pi.result`, `pi.pending.*`) rather than requiring a second operation table. Entries, usage, replaceable values, and append-only lists remain the durable storage primitives. A future design must explain any additional application tables without making them a second source of truth for Pi operation state.
 
-The next implementation phase should start on a new branch. Before additional code changes, review and extend this high-level design with the Pi contract mapping, Postgres schema and transaction boundaries, session/lane lease fencing, fork behavior, crash and recovery matrix, migration/compatibility policy, conformance test matrix, performance measurements, and unresolved decisions. The design must distinguish the native Pi session contract from later application concerns such as submissions, Workflow orchestration, streaming, and Sandbox placement.
+The implemented application boundaries and concrete crash matrix are recorded in [Function runtime](function-runtime.md). Production migrations, performance measurements, streaming, and Sandbox placement remain separate follow-up work.
 
 ## Data model
 
@@ -46,7 +46,7 @@ operation     metadata + one complete current state value
 result        one immutable terminal result per operation
 ```
 
-An operation has immutable metadata (`operation_id`, session/lane, kind, starting tip, creation time) and a single replaceable `operation_state`. Every state value is complete and self-sufficient; recovery never infers a checkpoint by looking for a missing row.
+An open operation has metadata (`operation_id`, lane, kind, starting tip, creation time) and a single replaceable `operation_state`. Every state value is complete and self-sufficient. Pi deletes open metadata/state in the terminal transaction and retains the immutable result, so terminal reads must tolerate absent metadata.
 
 The Pi state families used by this contract are:
 
@@ -66,7 +66,7 @@ summary.retry_wait
 navigation.ready_to_commit
 ```
 
-Tool calls should additionally record `planned`, `effect_pending`, `outcome_ready`, or `completed`, together with a replay policy (`safe` or `never`). Store arguments and reserved result/usage identifiers before invoking an external effect.
+Pi already records tool calls as `planned`, `effect_pending`, `outcome_ready`, or `completed`, with replay policy (`safe` or `never`), arguments, a stable invocation identity, and reserved result identifiers. Provider intent reserves response/usage identifiers. The Postgres adapter persists these native records; a second application effect ledger is not required for this PoC.
 
 ## Atomic commit rules
 
@@ -118,11 +118,11 @@ Recovery must be deterministic and idempotent:
 2. Read lane state and `operation_state`.
 3. If no current operation exists, return idle.
 4. Dispatch by the state discriminator.
-5. For `effect_pending`, apply the recorded replay policy: `safe` retries using the stable invocation id; `never` queries an idempotency/result store or settles as unknown according to product policy. Provider requests must preserve reserved usage ids and record settled or synthetic usage.
+5. Delegate `effect_pending` recovery to Pi. A `safe` tool can replay with the same invocation id; an interrupted `never` tool is not automatically invoked again and receives a synthetic error describing the unknown external outcome. An orphaned assistant request settles its committed partial under the original response/usage ids with synthetic zero usage. Pi may then schedule a new generation attempt under its captured retry policy. Deferred polling resumes from the persisted provider handle.
 6. Continue until the operation reaches one terminal transaction.
 7. A repeated drive of the same operation must return the same terminal result, not create a second result entry.
 
-External tools must receive a stable invocation identity and must either be idempotent or provide a durable effect/result lookup. Exactly-once execution cannot be provided by the database transaction alone.
+Choose `safe` only when repeated execution is acceptable or the tool implements its own idempotency. A non-idempotent tool can use `never` and surface uncertainty after interruption. Tool-specific result lookup or compensation can be added when the product needs it; it is not a prerequisite to detecting a crash. Neither Pi nor this application promises exactly-once external execution. Synthetic zero usage is a recovery accounting marker, not evidence of zero provider billing.
 
 ## Implementation sequence
 
@@ -148,7 +148,7 @@ Separate `accept` from `drive`. `accept` creates durable intent; a worker may pe
 
 Maintain branch tips, message counts, and usage totals as rebuildable projections. They may accelerate reads but must not be required to recover operation state.
 
-Application submission state is outside this native session contract. The current submission flow still has a process crash window between Pi admission and attaching the operation id; resolve that in a separate application-boundary design after the Postgres SessionRepo contract is complete.
+Application submission state is outside this native session contract. Admission now persists the prompt, lane, and reserved operation id before invoking Pi. A fenced reconciler checks native Pi metadata/result before accepting, then atomically attaches the operation, publishes the job, and removes the admission input. Product status is reconciled from Pi's snapshot and immutable terminal result; it does not own operation transitions.
 
 ## Test plan
 
@@ -180,4 +180,4 @@ Report SQL by phase (`accept`, `drive`, `recovery`, `settlement`, `teardown`), t
 
 ## Exit criteria
 
-The contract is ready for service integration when the in-memory and Postgres suites agree, all crash points have an explicit expected outcome, stale leases cannot publish state, duplicate drives are idempotent, and warm/cold load results identify the expected database bottleneck. Only then should workflow orchestration, streaming APIs, and sandbox hosts be added.
+The Function PoC integration gate is native conformance, the documented admission/effect crash cases, fenced ownership, independent wake-up, and authoritative result reads. Exhaustive boundary injection, property tests, warm/cold load measurements, streaming APIs, and Sandbox hosts are later gates; the focused PoC suite does not claim those are complete.

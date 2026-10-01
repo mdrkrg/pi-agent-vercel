@@ -8,6 +8,10 @@ The PoC separates three responsibilities:
 
 Postgres is the authoritative store for a resumable session. A process boundary is treated as a normal recovery event, so no correctness decision may depend on process-local Agent state.
 
-The first vertical slice is deliberately smaller than the production architecture: one session, one main lane, deterministic model input, and contract-tested storage. Workflow, streaming, and Sandbox integration follow only after fresh-process recovery is proven.
+The implemented vertical slice uses one main lane, fenced PostgreSQL sessions, durable admission input, a drive queue, and independent Function worker invocations. A local poller or authenticated cron invocation repairs admission, discovers Pi open operations, claims one bounded drive pass, and reconciles submission results. Client connections carry no execution authority.
+
+Pi already implements the effect sandwich: durable intent before an external effect and durable settlement afterward. An interrupted effect has an explicit recovery policy and may have an unknown external outcome. The application does not promise exactly-once effects or introduce another effect state machine.
+
+Sandbox lifecycle, streaming outboxes, and delegated heavy execution are deferred. Existing host/workspace contracts remain available; future hosts must preserve the same session/lane/operation identity, queue, fencing, and Pi result semantics. See [Function runtime](function-runtime.md) for the implemented boundary and operating instructions.
 
 External source trees are inspection-only references. Runtime code imports published packages and never imports from an external source path.
