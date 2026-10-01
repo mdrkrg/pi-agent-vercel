@@ -61,7 +61,7 @@ Both tokens use `Authorization: Bearer ...`. User/tenant come from configuration
 
 Provider/model identity and credentials belong to server configuration rather than wake-up payloads. The selected model must be available in the worker's Pi catalog. Execution budgets must preserve at least six seconds of cleanup headroom and fit the configured Function limit. Local polling and platform cron are interchangeable wake sources over the same durable worker contract.
 
-`vercel.json` schedules `/api/worker` once per minute. **This schedule requires Vercel Pro or Enterprise; Hobby deployments reject a sub-daily cron.** Vercel adds `CRON_SECRET` as a Bearer header. Cron failures are not automatically retried, so recovery depends on a later invocation. See [cron authentication and retries](https://vercel.com/docs/cron-jobs/manage-cron-jobs), [cron plan limits](https://vercel.com/docs/cron-jobs/usage-and-pricing), and [Function duration](https://vercel.com/docs/functions/configuring-functions/duration).
+`vercel.mjs` selects the worker wake-up source at build time. `AGENT_WORKER_SCHEDULER=external` omits the native cron for Hobby deployments; an external scheduler calls `/api/worker`. `AGENT_WORKER_SCHEDULER=vercel-cron` adds the once-per-minute native cron for Pro or Enterprise. Both modes use the same `CRON_SECRET` Bearer authentication and durable worker contract. Cron failures are not automatically retried, so recovery depends on a later invocation. See [cron authentication and retries](https://vercel.com/docs/cron-jobs/manage-cron-jobs), [cron plan limits](https://vercel.com/docs/cron-jobs/usage-and-pricing), and [Function duration](https://vercel.com/docs/functions/configuring-functions/duration).
 
 ## Recovery boundaries
 
