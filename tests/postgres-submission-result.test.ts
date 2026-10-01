@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/harness/context";
+import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/pi-agent-core/harness/context";
 import { createModels, fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { PostgresAdmission, PostgresRecoveryCoordinator, PostgresSubmissionReader, openAgentHarness } from "../packages/agent-runtime/src/index.ts";
@@ -56,6 +56,25 @@ describe.skipIf(databaseUrl === undefined)("authoritative Pi submission results"
 		const view = await state.reader.read(state.submission.id, state.principal, BACKGROUND_CONTEXT);
 		expect(view).toMatchObject({ submission: { status: "failed" }, result: { status: "failed" } });
 		await state.repo.close(BACKGROUND_CONTEXT);
+	});
+
+	it("stops a projection scan on invocation cancellation and repairs remaining results later", async () => {
+		const first = await setup(); await first.worker.run();
+		const second = await setup();
+		try {
+			await second.worker.run();
+			const controller = new AbortController(); const reconcile = first.submissions.reconcileOperation.bind(first.submissions);
+			const projection = vi.spyOn(first.submissions, "reconcileOperation").mockImplementation(async (...args) => {
+				const result = await reconcile(...args); controller.abort(new Error("Invocation exhausted")); return result;
+			});
+			await expect(first.reader.reconcilePending(100, withAbortSignal(controller.signal, BACKGROUND_CONTEXT))).rejects.toThrow("Invocation exhausted");
+			expect(projection).toHaveBeenCalledTimes(1);
+			projection.mockRestore();
+			expect(await first.submissions.listUnsettled()).toHaveLength(1);
+			await first.reader.reconcilePending();
+			expect(await first.submissions.get(first.submission.id)).toMatchObject({ status: "completed" });
+			expect(await second.submissions.get(second.submission.id)).toMatchObject({ status: "completed" });
+		} finally { await first.repo.close(BACKGROUND_CONTEXT); await second.repo.close(BACKGROUND_CONTEXT); }
 	});
 
 	it("projects cancellation only after Pi settles its durable abort request", async () => {

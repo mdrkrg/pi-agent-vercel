@@ -27,9 +27,10 @@ export class PostgresSubmissionReader {
 		return { result: view.result, ...(output === undefined ? {} : { output }) };
 	}
 
-	async reconcilePending(limit = 100): Promise<{ submissionId: string; error?: string }[]> {
+	async reconcilePending(limit = 100, context?: Context): Promise<{ submissionId: string; error?: string }[]> {
 		const results: { submissionId: string; error?: string }[] = [];
 		for (const submission of await this.submissions.listUnsettled(limit)) {
+			context?.abortSignal?.throwIfAborted();
 			try { await this.reconcile(submission); results.push({ submissionId: submission.id }); }
 			catch (error) { results.push({ submissionId: submission.id, error: error instanceof Error ? error.message : String(error) }); }
 		}

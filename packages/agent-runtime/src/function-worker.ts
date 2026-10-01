@@ -45,7 +45,8 @@ export class PostgresFunctionWorker<TContext extends object | undefined = object
 			});
 			const discovered = await coordinator.discover();
 			const driven = await coordinator.run(1);
-			const projections = await new PostgresSubmissionReader(this.options.repo, this.options.submissions).reconcilePending(this.options.scanLimit ?? 100);
+			tickContext.abortSignal?.throwIfAborted();
+			const projections = await new PostgresSubmissionReader(this.options.repo, this.options.submissions).reconcilePending(this.options.scanLimit ?? 100, tickContext);
 			return { pending, discovered: discovered.length, driven, projections };
 		} finally { clearTimeout(timer); }
 	}
