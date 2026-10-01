@@ -170,8 +170,12 @@ export class PostgresRecoveryCoordinator<TContext extends object | undefined = o
 		} catch (error) {
 			if (!settled) {
 				try {
-					await this.options.jobs.fail(job, this.options.workerId, errorText(error));
+					// A worker exception is not a Pi terminal result. Keep the job
+					// recoverable so transient infrastructure faults do not strand
+					// an operation behind a permanently failed scheduling record.
+					await this.options.jobs.reschedule(job, this.options.workerId, { availableAt: this.now() + this.retryDelayMs, error: errorText(error) });
 					settled = true;
+					return { jobId: job.id, operationId: job.operationId, status: "waiting", open };
 				} catch {
 					// The claim may already have expired or been fenced. The next
 					// worker can reclaim it from the durable expiry timestamp.

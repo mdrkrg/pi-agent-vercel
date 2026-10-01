@@ -168,9 +168,9 @@ export class DriveJobRepo {
 		return this.updateClaim(job, ownerId, "completed", { availableAt: this.clock(), clearClaim: true });
 	}
 
-	async reschedule(job: DriveJob, ownerId: string, options: { availableAt: number; deferredHandle?: unknown }): Promise<DriveJob> {
+	async reschedule(job: DriveJob, ownerId: string, options: { availableAt: number; deferredHandle?: unknown; error?: string }): Promise<DriveJob> {
 		if (!Number.isSafeInteger(options.availableAt)) throw new Error("Drive job availableAt must be a safe integer");
-		return this.updateClaim(job, ownerId, "waiting", { availableAt: options.availableAt, deferredHandle: options.deferredHandle, clearClaim: true });
+		return this.updateClaim(job, ownerId, "waiting", { availableAt: options.availableAt, deferredHandle: options.deferredHandle, ...(options.error === undefined ? {} : { error: options.error }), clearClaim: true });
 	}
 
 	async fail(job: DriveJob, ownerId: string, error: string): Promise<DriveJob> {
