@@ -96,7 +96,12 @@ export class PostgresSessionRepo implements SessionRepo {
 		return this.createInternal({ ...options, id: lease.sessionId }, lease, context);
 	}
 
-	private async createInternal(options: SessionCreateOptions, lease: SessionLease | undefined, context: Context): Promise<Session> {
+	async createWithOwner(owner: { userId: string; tenantId: string }, context: Context): Promise<Session> {
+		if (owner.userId.length === 0 || owner.tenantId.length === 0) throw new Error("Session owner identity must not be empty");
+		return this.createInternal({}, undefined, context, owner);
+	}
+
+	private async createInternal(options: SessionCreateOptions, lease: SessionLease | undefined, context: Context, owner?: { userId: string; tenantId: string }): Promise<Session> {
 		this.assertOpen();
 		const id = options.id ?? uuidv7(this.now());
 		if (this.openSessions.has(id) || this.pendingCreates.has(id)) throw new Error(`Session already open: ${id}`);
@@ -111,6 +116,7 @@ export class PostgresSessionRepo implements SessionRepo {
 					 VALUES ($1, $2, $3, $4)`,
 					[id, createdAt, STORAGE_VERSION, options.parentSessionId ?? null],
 				);
+				if (owner !== undefined) await transaction.query("INSERT INTO agent_session_access (session_id, user_id, tenant_id) VALUES ($1,$2,$3)", [id, owner.userId, owner.tenantId]);
 			});
 			const metadata: SessionMetadata = {
 				id,
@@ -152,6 +158,12 @@ export class PostgresSessionRepo implements SessionRepo {
 			"SELECT id, created_at, storage_version, parent_session_id FROM pi_poc_sessions ORDER BY id ASC",
 		);
 		return result.rows.map(metadataFromRow);
+	}
+
+	async authorizedMetadata(id: string, userId: string, tenantId: string): Promise<SessionMetadata | undefined> {
+		this.assertOpen();
+		const rows = await this.executor.query<SessionRow>("SELECT s.id, s.created_at, s.storage_version, s.parent_session_id FROM pi_poc_sessions s JOIN agent_session_access a ON a.session_id=s.id WHERE s.id=$1 AND a.user_id=$2 AND a.tenant_id=$3", [id, userId, tenantId]);
+		return rows.rows[0] === undefined ? undefined : metadataFromRow(rows.rows[0]);
 	}
 
 	/** One SQL snapshot observes the atomic Pi state/result boundary without opening a writer. */

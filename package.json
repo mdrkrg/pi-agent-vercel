@@ -7,6 +7,8 @@
   "description": "Durable agent runtime proof of concept",
   "scripts": {
     "check": "tsc --noEmit",
+    "dev:service": "tsx scripts/local-service.ts",
+    "worker:once": "tsx scripts/function-worker.ts",
     "test": "vitest run --config vitest.config.ts"
   },
   "devEngines": {

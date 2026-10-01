@@ -73,6 +73,7 @@ export class PostgresAdmission<TContext extends object | undefined = object | un
 	async recoverPending(context: Context, limit = 100): Promise<{ submissionId: string; error?: string }[]> {
 		const results: { submissionId: string; error?: string }[] = [];
 		for (const submission of await this.options.submissions.listPending(limit)) {
+			context.abortSignal?.throwIfAborted();
 			try { await this.recover(submission.id, context); results.push({ submissionId: submission.id }); }
 			catch (error) { results.push({ submissionId: submission.id, error: error instanceof Error ? error.message : String(error) }); }
 		}

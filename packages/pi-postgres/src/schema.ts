@@ -8,6 +8,12 @@ CREATE TABLE IF NOT EXISTS pi_poc_sessions (
   parent_session_id TEXT
 );
 
+CREATE TABLE IF NOT EXISTS agent_session_access (
+  session_id TEXT PRIMARY KEY REFERENCES pi_poc_sessions(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL,
+  tenant_id TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS pi_poc_schema_migrations (
   version TEXT PRIMARY KEY,
   applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
