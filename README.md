@@ -19,3 +19,12 @@ Pi owns the effect sandwich and crash detection. External exactly-once execution
 The Vercel entry and one-minute authenticated cron are configured but have not been deployed. That cron requires Pro/Enterprise. The HTTP shell uses one configured API principal; full-session discovery and request-time schema bootstrap are small-PoC boundaries.
 
 The repository CI workflow starts PostgreSQL 16 and runs the full contract suite with `DATABASE_URL`, including fresh-process recovery and control-state tests.
+
+## Vercel configuration
+
+Deploy from repository root using the checked-in `vercel.json`.
+
+- Deployment: Node 24; pnpm 12.8.1; Function limit 60s.
+- Environment: configure [.env.example](.env.example) in Vercel Project Settings.
+- Scheduler: built-in every-minute cron requires Pro/Enterprise; Hobby needs an external scheduler and removal of `crons`.
+- Worker: `/api/worker`, authenticated with `Authorization: Bearer <CRON_SECRET>`.

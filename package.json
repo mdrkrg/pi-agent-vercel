@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@12.8.1",
+  "engines": {
+    "node": "24.x"
+  },
   "description": "Durable agent runtime proof of concept",
   "scripts": {
     "check": "tsc --noEmit",
