@@ -8,7 +8,7 @@ Pi owns `pi.op.meta`, `pi.op.state`, `pi.result`, pending frames, entries, usage
 
 | Record | Responsibility |
 | --- | --- |
-| `agent_session_access` | Session user/tenant ownership, inserted atomically with session creation |
+| `agent_session_access` | Session user/tenant ownership, inserted atomically with session creation or service-facing fork |
 | `agent_submissions` | Request identity and rebuildable product status/result reference |
 | `agent_submission_requests` | Pending prompt/lane and reserved Pi operation id until publication |
 | `agent_drive_jobs` | Scheduling, attempts, retry/poll time, job claims and fencing |
@@ -52,12 +52,29 @@ Pi deletes operation metadata/state upon settlement. The result reader uses the 
 | Route | Authentication | Response |
 | --- | --- | --- |
 | `POST /api/sessions` | `POC_API_TOKEN` | Owned session, `201` |
+| `POST /api/sessions/:id/fork` | API token, source session ownership | Atomically owned fork, `201` |
 | `POST /api/sessions/:id/messages` | API token, session ownership, `Idempotency-Key` | Durable submission, `202` |
 | `GET /api/submissions/:id` | API token, submission ownership | Pi status/result projection |
 | `GET /api/submissions/:id/result` | API token, submission ownership | Frozen result/output; `409` before completion |
 | `GET` or `POST /api/worker` | `CRON_SECRET` | One independent worker tick |
 
 Both tokens use `Authorization: Bearer ...`. User/tenant come from configuration and persisted records; development identity headers are ignored. This shell supports one configured principal. Multi-user token validation and authorization-policy versions are future application work. The runtime accepts tools via `FunctionService` options; the environment entry starts with no tools configured.
+
+### Session forks
+
+`POST /api/sessions/:id/fork` accepts a JSON object. `scope` is required:
+
+- `{"scope":"tree"}` copies the whole conversation tree and branch tips. Optional `id` selects the destination; `branch`, `entryId`, and `position` are rejected for tree scope.
+- `{"scope":"branch","branch":"main","entryId":"entry-1","position":"before"}` copies one configured AgentLane path. `branch` is required; `entryId` defaults to its current tip. `position` is `at` (default, includes the entry) or `before` (stops at its parent). The entry must be on the current tip ancestry.
+- Supplied `id`, `branch`, and `entryId` must be non-empty strings. Unknown scope, invalid fields, unknown/data-only source branch, or an off-branch/unknown entry return `400`.
+
+The source must belong to the configured user **and** tenant; missing or unauthorized sources return the same `404`, before body validation. Identity headers cannot override this principal. Success returns `201` with `{"session": <metadata>}` including `parentSessionId`. An existing destination id returns `409` without modifying it; fork is not an idempotent API.
+
+`PostgresSessionRepo.forkWithOwner` drains already-admitted local source storage commits, then copies entries, projected values/lists, and the source sequence high-water mark under one repeatable-read transaction. That transaction also inserts `agent_session_access`. Ownership failure rolls everything back; process death cannot commit session/storage without ownership. Another process's source changes after the snapshot are not included; fork does not acquire a mutable source lease or wait for an active operation to finish.
+
+Configured lanes inherit configuration with fresh idle state. Operation/pending/result/usage state and application submission/job records are not copied. Tree scope copies application values/lists; branch scope omits them. The fork owner may submit fresh messages, and other users/tenants cannot access or fork it. The native `SessionRepo.fork` remains an ownership-free internal API, not an HTTP path.
+
+Fork retention/reconciliation, rate limits/quotas, and multi-principal policy are not implemented. See [known gaps](known-gaps.md).
 
 Provider/model identity and credentials belong to server configuration rather than wake-up payloads. The selected model must be available in the worker's Pi catalog. Execution budgets must preserve at least six seconds of cleanup headroom and fit the configured Function limit. Local polling and platform cron are interchangeable wake sources over the same durable worker contract.
 
