@@ -17,8 +17,8 @@
   "devEngines": {
     "runtime": {
       "name": "node",
-      "version": "26.10.0",
-      "onFail": "download"
+      "version": "24.x",
+      "onFail": "error"
     }
   },
   "dependencies": {

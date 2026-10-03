@@ -26,7 +26,7 @@ The repository CI workflow starts PostgreSQL 16 and runs the full contract suite
 
 Deploy from repository root using the checked-in `vercel.mjs`.
 
-- Deployment: Node 24; pnpm 12.8.1; Function limit 60s.
+- Runtime: Node 24; pnpm 12.8.1; Function limit 60s.
 - Environment: configure [.env.example](.env.example); Neon integration supplies `DATABASE_URL`.
 - Providers: installed Pi built-ins; configure `AGENT_PROVIDER`, `AGENT_MODEL_ID`, and provider credentials.
 - Scheduler: external by default on Hobby; `AGENT_WORKER_SCHEDULER=vercel-cron` enables every-minute cron on Pro/Enterprise.
