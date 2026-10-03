@@ -1,6 +1,7 @@
 .git/
 .vercel/
 .github/
+AGENTS.md
 docs/
 tests/
 coverage/

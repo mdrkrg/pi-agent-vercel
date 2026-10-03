@@ -1,110 +1,86 @@
-# Function durable runtime
+# Function reference
 
-This design defines a Function-based durable agent runtime: PostgreSQL persistence, the published Pi `0.87.1` contract, one main lane, a single-principal API, and disposable worker processes. Sandbox is deferred while host interfaces and durable identities remain compatible.
+Commands, HTTP contract, and deployment settings for the single-principal Function PoC. Design lives in [architecture](architecture.md); persistence/recovery mechanics live in [implementation](runtime-implementation.md).
 
-## Ownership and durable records
+## Local commands
 
-Pi owns `pi.op.meta`, `pi.op.state`, `pi.result`, pending frames, entries, usage, and lane transitions. Application records have narrower responsibilities:
+Set the server environment from [.env.example](../.env.example); keep credentials out of Git.
 
-| Record | Responsibility |
-| --- | --- |
-| `agent_session_access` | Session user/tenant ownership, inserted atomically with session creation or service-facing fork |
-| `agent_submissions` | Request identity and rebuildable product status/result reference |
-| `agent_submission_requests` | Pending prompt/lane and reserved Pi operation id until publication |
-| `agent_drive_jobs` | Scheduling, attempts, retry/poll time, job claims and fencing |
-| `agent_session_leases` | Exclusive mutable session ownership and increasing fencing epochs |
+- `pnpm dev:service`: HTTP server with an independent local poller.
+- `pnpm worker:once`: one fresh local worker tick.
+- `pnpm check` / `pnpm test`: type-check and contracts; SQL suites need `DATABASE_URL`.
 
-Admission first commits a submission and its recoverable input. Its reserved operation id is the submission id. Under fenced session ownership, recovery queries Pi metadata/result before considering `accept`; Pi `accept` itself is not an idempotent lookup. Busy lanes and busy leases leave the input accepted for later recovery. Publication attaches the operation id, links/enqueues the job, and deletes pending input in one lease-validated SQL transaction. Prompt/lane mismatches on a client idempotency key are rejected.
+## Authentication and routes
 
-The Pi admission transaction and application publication transaction remain separate. Persisted input, stable identity, query-before-accept, and fencing make their crash gap repairable without a client retry. Discovery-created jobs can subsequently be linked to their submission.
+API requests use `Authorization: Bearer <POC_API_TOKEN>`; worker requests use a distinct `CRON_SECRET`. Ownership checks require both **userId AND tenantId** to match the configured principal. Identity headers are ignored; unknown and unauthorized resources return the same `404`.
 
-## Independent execution and time budgets
-
-`PostgresFunctionWorker.tick` repairs pending admission, discovers Pi open operations, claims one due drive job, and reconciles unsettled submissions. A wake-up contains no principal or operation payload. The harness factory rebuilds tool context from the persisted submission and rechecks session ownership. Polling a result never drives the agent.
-
-The local runner polls independently of HTTP connections. Vercel uses authenticated `/api/worker` cron calls; a subsequent tick repairs an interrupted previous invocation. Waiting retry/deferred operations release session ownership and job claims. Pi's `notBefore` determines retry time; deferred handles and poll times remain durable.
-
-Default budgets are a 45-second drive pass, 55-second worker invocation, and a 60-second Function limit. Database query timeouts and cleanup headroom bound ordinary teardown. Both session and job claims renew during a pass. Renewal failure, parent cancellation, local lease expiry, or a deadline aborts the observer and closes Pi's harness, sealing its effect gate. Host shutdown leaves native durable state open for recovery rather than issuing a user abort.
-
-An already-sent remote effect may still complete despite cancellation. Hard Function termination can interrupt cleanup; expired claims and a fresh invocation repair this case. Fencing protects database writes and does not roll back remote effects.
-
-## Pi effect sandwich
-
-There is no exactly-once promise and no parallel application effect ledger.
-
-| Native state/policy | Fresh-worker behavior |
-| --- | --- |
-| Assistant `effect_pending` | Settle committed partial under reserved response/usage ids, with synthetic zero usage; captured Pi retry policy may start a new attempt later |
-| Tool `safe` | Replay using the same invocation id; the tool must make repeat execution acceptable |
-| Tool `never` | Do not invoke the interrupted effect again; synthesize an error indicating unknown external outcome |
-| Deferred wait | Reconstruct and poll the committed provider handle |
-
-Zero synthetic usage does not establish actual provider billing. Product-specific reconciliation, idempotency keys, or compensation remain tool adapter choices when required.
-
-## Authoritative reads
-
-Status reads authorize by persisted submission user/tenant and read Pi metadata/state/result in one SQL snapshot. Product projections can lag, fail, and be repaired by a read or worker tick. A delayed open snapshot cannot revive a terminal projection.
-
-Pi deletes operation metadata/state upon settlement. The result reader uses the immutable `pi.result` and its frozen `tipId`; later prompts cannot change an earlier operation's output. Queue `completed` means the drive job finished: the Pi result may still be `failed` or `aborted`. Pi `aborted` maps to product `cancelled`.
-
-## HTTP and configuration
-
-| Route | Authentication | Response |
+| Route | Authorization | Response |
 | --- | --- | --- |
-| `POST /api/sessions` | `POC_API_TOKEN` | Owned session, `201` |
-| `POST /api/sessions/:id/fork` | API token, source session ownership | Atomically owned fork, `201` |
+| `POST /api/sessions` | API token | Owned session, `201` |
+| `POST /api/sessions/:id/fork` | API token, source ownership | Owned fork, `201` |
 | `POST /api/sessions/:id/messages` | API token, session ownership, `Idempotency-Key` | Durable submission, `202` |
-| `GET /api/submissions/:id` | API token, submission ownership | Pi status/result projection |
-| `GET /api/submissions/:id/result` | API token, submission ownership | Frozen result/output; `409` before completion |
-| `GET` or `POST /api/worker` | `CRON_SECRET` | One independent worker tick |
+| `GET /api/submissions/:id` | API token, submission ownership | Native status/result projection |
+| `GET /api/submissions/:id/result` | API token, submission ownership | Frozen result/output; unfinished `409` |
+| `GET` or `POST /api/worker` | Worker token | One independent tick |
 
-Both tokens use `Authorization: Bearer ...`. User/tenant come from configuration and persisted records; development identity headers are ignored. This shell supports one configured principal. Multi-user token validation and authorization-policy versions are future application work. The runtime accepts tools via `FunctionService` options; the environment entry starts with no tools configured.
+Message input is `{"prompt":"..."}`: prompt must contain 1–65,536 characters; `Idempotency-Key` must contain 1–256 characters. Within a session, the same key/payload converges on one submission; changed payload returns `409`. Status/result polling does not drive execution.
 
-### Session forks
+### Fork requests
 
-`POST /api/sessions/:id/fork` accepts a JSON object. `scope` is required:
+`scope` is required; optional `id` chooses the destination:
 
-- `{"scope":"tree"}` copies the whole conversation tree and branch tips. Optional `id` selects the destination; `branch`, `entryId`, and `position` are rejected for tree scope.
-- `{"scope":"branch","branch":"main","entryId":"entry-1","position":"before"}` copies one configured AgentLane path. `branch` is required; `entryId` defaults to its current tip. `position` is `at` (default, includes the entry) or `before` (stops at its parent). The entry must be on the current tip ancestry.
-- Supplied `id`, `branch`, and `entryId` must be non-empty strings. Unknown scope, invalid fields, unknown/data-only source branch, or an off-branch/unknown entry return `400`.
+| Scope | Fields | Copy |
+| --- | --- | --- |
+| `tree` | `{"scope":"tree"}`; no `branch`, `entryId`, or `position` | Conversation tree and branch tips |
+| `branch` | Required configured AgentLane `branch`; optional `entryId`, `position` | One lane's path; entry defaults to current tip |
 
-The source must belong to the configured user **and** tenant; missing or unauthorized sources return the same `404`, before body validation. Identity headers cannot override this principal. Success returns `201` with `{"session": <metadata>}` including `parentSessionId`. An existing destination id returns `409` without modifying it; fork is not an idempotent API.
+For branch scope, `position` is `at` (default, includes entry) or `before` (stops at parent). The entry must be on current-tip ancestry. Supplied string fields must be nonempty.
 
-`PostgresSessionRepo.forkWithOwner` drains already-admitted local source storage commits, then copies entries, projected values/lists, and the source sequence high-water mark under one repeatable-read transaction. That transaction also inserts `agent_session_access`. Ownership failure rolls everything back; process death cannot commit session/storage without ownership. Another process's source changes after the snapshot are not included; fork does not acquire a mutable source lease or wait for an active operation to finish.
+- Missing/unauthorized source: `404`, checked before body validation.
+- Invalid scope/fields, unknown or data-only branch, unknown/off-branch entry: `400`.
+- Success: `201`, `{"session": <metadata>}` including `parentSessionId` and atomic user/tenant ownership.
+- Existing destination: `409`, unchanged. Fork is not idempotent; no blind retry.
 
-Configured lanes inherit configuration with fresh idle state. Operation/pending/result/usage state and application submission/job records are not copied. Tree scope copies application values/lists; branch scope omits them. The fork owner may submit fresh messages, and other users/tenants cannot access or fork it. The native `SessionRepo.fork` remains an ownership-free internal API, not an HTTP path.
+The fork retains the source's user/tenant ownership and accepts fresh messages from that owner. Cross-user or cross-tenant access/fork attempts return `404`.
 
-Fork retention/reconciliation, rate limits/quotas, and multi-principal policy are not implemented. See [known gaps](known-gaps.md).
+Fork lanes start idle; operation/pending/result/usage and submission/job state are excluded. Tree copies application values/lists; branch does not. Snapshot/transaction details are in [implementation](runtime-implementation.md).
 
-The environment entry uses Pi's `builtinModels()` to register all installed built-in providers. `AGENT_PROVIDER` / `AGENT_MODEL_ID` select one catalog model; Pi resolves its standard credential variables (e.g. `DEEPSEEK_API_KEY`). Unknown providers/models fail configuration; automatic provider failover is not enabled. `POC_FAUX_RESPONSE` still selects the isolated deterministic provider.
+## Provider configuration
 
-Credentials remain server-side. This entry does not load coding-agent `auth.json`, `models.json`, or extensions, or configure persistent OAuth refresh. Full-provider bundle size and cold-start behavior require deployment validation.
+`AGENT_PROVIDER` and `AGENT_MODEL_ID` select one model from the installed Pi built-ins. Pi resolves standard provider credential variables, such as `DEEPSEEK_API_KEY`. Unknown provider/model fails configuration; automatic failover is disabled.
 
-Neon's Vercel integration injects pooled `DATABASE_URL`, usable with the existing `pg` runtime; retain its SSL settings and use an isolated test database. A local scheduler must call the deployed `/api/worker` to validate Function execution. Stop it after testing: minute-by-minute database queries prevent Neon idle suspension and consume compute quota.
+`POC_FAUX_RESPONSE` selects an isolated deterministic provider; omit it for real execution. The environment entry configures no tools; programmatic `FunctionService` options can supply them.
 
-`AGENT_ADMISSION_MS` bounds API admission ownership (default 10s); worker admission recovery retains its 10s default. Increase the API budget only after measuring database latency. Admission/pass budgets must leave at least six seconds below `AGENT_INVOCATION_MS` and fit the configured Function limit. Local polling and platform cron are interchangeable wake sources over the same durable worker contract.
+Credentials stay server-side. This entry does not load coding-agent `auth.json`, `models.json`, or extensions, or configure persistent OAuth refresh. Provider bundle size and cold-start behavior need deployment measurement.
 
-`vercel.mjs` selects the worker wake-up source at build time. `AGENT_WORKER_SCHEDULER=external` omits the native cron for Hobby deployments; an external scheduler calls `/api/worker`. `AGENT_WORKER_SCHEDULER=vercel-cron` adds the once-per-minute native cron for Pro or Enterprise. Both modes use the same `CRON_SECRET` Bearer authentication and durable worker contract. Cron failures are not automatically retried, so recovery depends on a later invocation. See [cron authentication and retries](https://vercel.com/docs/cron-jobs/manage-cron-jobs), [cron plan limits](https://vercel.com/docs/cron-jobs/usage-and-pricing), and [Function duration](https://vercel.com/docs/functions/configuring-functions/duration).
+## Budgets and connections
 
-## Recovery boundaries
-
-Recovery must work from committed records after ownership expires, without a client retry or a caller remembering the operation id:
-
-| Interrupted boundary | Required repair |
+| Setting | Default / constraint |
 | --- | --- |
-| Input committed before Pi admission | Admit stored prompt once without client retry |
-| Pi admission before publication | Find reserved Pi identity and publish its job |
-| Publication before client response | Complete existing job without duplicate user entry |
-| Pi terminal/job completion before projection | Rebuild submission from immutable result |
-| Assistant effect pending | Synthetic response/usage, durable retry, later fresh-process attempt |
-| Deferred wait persisted | Fresh process polls the same provider handle |
-| Safe tool effect pending | Replay with stable invocation id and reconstructed principal |
-| Never tool effect pending | No repeated invocation; durable unknown-outcome tool error |
+| `AGENT_ADMISSION_MS` | API admission ownership: 10,000ms; worker recovery remains 10,000ms |
+| `AGENT_PASS_MS` | Drive pass: 45,000ms |
+| `AGENT_INVOCATION_MS` | Worker invocation: 55,000ms maximum |
+| Function duration | 60s in `vercel.mjs` |
+| Session/job claim TTL | 90s; session renewal about every 30s |
+| PostgreSQL pool per invocation | Max 4; connection wait 5s, idle timeout 10s, statement timeout 5s, query timeout 6s |
 
-Projection scanning must stop between requests when its invocation is cancelled and leave remaining projections for a later tick. Client connection lifetime must not control worker execution or recovery.
+Budgets must be positive integer milliseconds and satisfy `max(pass, API admission) + 6,000 <= invocation <= 55,000`. Increase admission only after measuring database latency. Invocation leaves just 5s below the platform limit; measure entry/bootstrap/teardown overhead.
 
-## Scope and scaling
+Pool limits multiply across concurrent Functions. Renewals extend claim expiry, so use persisted expiry timestamps—not time since HTTP request—to assess takeover.
 
-The PoC permits full-session discovery, admission/projection scans of up to 100 rows, and one drive job per tick. Scaling requires indexed recovery selection, controlled migrations instead of request-time schema bootstrap, and explicit queue fairness and connection limits.
+## Vercel and scheduling
 
-Streaming outbox/replay, real Sandbox lifecycle, artifact/workspace persistence, delegated heavy jobs, and retention remain deferred. Future execution hosts must use the same admission, queue, fencing, authorization, and Pi result contracts.
+Deploy from repository root with Node 24 and the checked-in `vercel.mjs`. Neon integration can supply pooled `DATABASE_URL`; retain its recommended SSL settings.
+
+| `AGENT_WORKER_SCHEDULER` | Wake source |
+| --- | --- |
+| `external` (default) | Hobby-compatible; external scheduler calls deployed `/api/worker` |
+| `vercel-cron` | Pro/Enterprise every-minute native cron |
+
+Scheduler selection is build-time; changing it requires redeployment. Both modes use `Authorization: Bearer <CRON_SECRET>`. A later invocation repairs interrupted work; native cron failures are not automatically retried.
+
+For validation, use an isolated database and an authorized provider budget. Preserve Preview Deployment Protection; platform access and application Bearer authentication are separate requirements. Use a bounded independent scheduler, not smoke-client ticks or local `worker:once`, to prove deployed execution. Stop it afterward: minute-by-minute queries prevent Neon idle suspension and consume quota.
+
+The current worker drives one job per tick, scans up to 100 admission/projection rows, and discovers sessions by a full scan. Schema bootstrap runs at request time. These are PoC limits, not throughput or recovery SLOs; see [known gaps](known-gaps.md).
+
+Platform references: [cron authentication/retries](https://vercel.com/docs/cron-jobs/manage-cron-jobs), [cron plan limits](https://vercel.com/docs/cron-jobs/usage-and-pricing), [Function duration](https://vercel.com/docs/functions/configuring-functions/duration).

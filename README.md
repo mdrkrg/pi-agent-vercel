@@ -1,26 +1,20 @@
 # Pi Agent Vercel PoC
 
-This repository is a contract-first durability spike around the published `@earendil-works/pi-agent-core` package. Pi owns AgentHarness operation semantics; Postgres owns durable session state; the runtime wrapper acquires a fenced session lease for each drive pass.
+A resumable agent runtime for short-lived Functions: Pi owns agent semantics, PostgreSQL stores durable sessions, and an independent worker resumes execution.
 
-Install and verify with pnpm 12 and the project runtime (Corepack is not required):
+## Local development
+
+Requires Node 24 and pnpm 12.8.1; Corepack is not required.
 
 ```sh
 pnpm install
-pnpm run check
+pnpm check
 pnpm test
 ```
 
-Postgres contract suites run when `DATABASE_URL` is set. They cover Pi Storage and SessionRepo conformance, lease/fencing behavior, fresh-process recovery, provider/tool effect recovery, idempotent submissions, delegated task lifecycle, concurrent admission, and atomic ownership-aware forks (rollback, snapshot, and cross-tenant authorization). Without a database, the deterministic runtime contracts still run and database suites are skipped.
+Set `DATABASE_URL` to run the PostgreSQL contracts; otherwise SQL suites are skipped. CI supplies disposable PostgreSQL 16.
 
-The Function PoC now includes recoverable admission input, fenced bounded drives, an independent worker, authenticated session/fork/submission/result endpoints, and status reconciliation from immutable Pi results. `pnpm dev:service` runs an HTTP server with an independent local poller; `pnpm worker:once` runs a fresh worker tick. See [Function configuration and routes](docs/function-runtime.md).
-
-`POST /api/sessions/:id/fork` supports `tree` and configured `branch` scopes, with optional destination `id` and branch `entryId`/`position`. It requires Bearer auth and source user/tenant ownership. Session/storage and `agent_session_access` commit atomically; duplicate destination ids return `409`. Fork retention, rate limits, and multi-principal policy remain deferred ([known gaps](docs/known-gaps.md)).
-
-Pi owns the effect sandwich and crash detection. External exactly-once execution is not promised; safe/never replay follows native Pi semantics. Sandbox, streaming outbox, and delegated heavy execution are deferred while their architecture interfaces remain available.
-
-The Vercel entry and authenticated worker wake-up are configured; real-provider cloud qualification remains separate from local tests and a successful deployment. The HTTP shell uses one configured API principal; full-session discovery and request-time schema bootstrap are small-PoC boundaries.
-
-The repository CI workflow starts PostgreSQL 16 and runs the full contract suite with `DATABASE_URL`, including fresh-process recovery and control-state tests.
+`pnpm dev:service` starts HTTP plus an independent local poller; `pnpm worker:once` runs one worker tick. See the [Function reference](docs/function-runtime.md) for credentials, routes, and configuration.
 
 ## Vercel configuration
 
@@ -31,3 +25,11 @@ Deploy from repository root using the checked-in `vercel.mjs`.
 - Providers: installed Pi built-ins; configure `AGENT_PROVIDER`, `AGENT_MODEL_ID`, and provider credentials.
 - Scheduler: external by default on Hobby; `AGENT_WORKER_SCHEDULER=vercel-cron` enables every-minute cron on Pro/Enterprise.
 - Worker: `/api/worker`, authenticated with `Authorization: Bearer <CRON_SECRET>`.
+
+## Scope and documentation
+
+This PoC supports one configured principal and one main lane. It does not promise exactly-once external effects or production readiness; Sandbox, streaming, and heavy delegated execution remain deferred.
+
+- [Architecture](docs/architecture.md) and [durable contract](docs/operation-aware-contract.md): design and guarantees.
+- [Implementation](docs/runtime-implementation.md): persistence and recovery mechanics.
+- [Known gaps](docs/known-gaps.md): limits and production work.

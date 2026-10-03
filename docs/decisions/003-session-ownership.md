@@ -1,11 +1,11 @@
 # Session ownership and fencing
 
-A writable Pi session has one active application owner at a time. Ownership is represented by a durable lease with a monotonically increasing fencing epoch; a lease timeout permits takeover but does not by itself authorize stale work.
+A writable session has one active writer under a durable lease with a monotonically increasing fencing epoch. Expiry permits takeover; it does not authorize stale work.
 
-Every mutable session transaction that runs under a lease validates the holder and epoch while holding the lease row lock. A process that lost ownership fails before publishing writes. Lease acquisition, renewal, and release are application control-plane operations and are separate from Pi operation state.
+Every leased mutation validates current writer ownership and epoch atomically with its writes. Once ownership is lost, the old writer cannot publish. Lease identity belongs to the application control plane, not Pi operation state or the conversation transcript.
 
-A drive pass acquires ownership before opening a fenced session and releases it after closing the harness. Waiting or retrying leaves ownership so a later drive pass can acquire it again. The lease identity is never stored in the conversation transcript.
+Admission and drive passes use the same fencing contract. Epochs must not reset on release or holder-id reuse. Waiting/retrying work releases ownership so a later pass can resume.
 
-Admission uses the same fenced ownership helper. Releasing a lease expires its row rather than deleting it, preserving increasing epochs even when a holder id is reused.
+Drive passes renew both session ownership and their queue claim. Ownership loss, cancellation, or deadline must seal the harness effect gate and stop the observer. This does not reverse a remote effect or turn host shutdown into a durable user abort; Pi's committed state remains recoverable.
 
-Drive passes renew both session ownership and their queue claim. A failed renewal, local expiry, parent abort, or execution deadline closes Pi's harness to seal its effect gate and cancels the drive observer. This stops new effects and signals admitted effects; it does not reverse an external effect or convert host shutdown into a durable user abort. Pi's last committed state remains recoverable.
+Lease-row locking, release/renewal mechanics, and lifecycle ordering are documented in [implementation](../runtime-implementation.md).

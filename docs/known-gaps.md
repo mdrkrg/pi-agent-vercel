@@ -1,17 +1,29 @@
 # Known gaps
 
-## Orphan sessions: legacy crash window closed, internal API risk remains
+The Function PoC is not production-qualified. These limits remain even when local contracts and a small deployed smoke pass.
 
-The old local service committed `pi_poc_sessions` and copied storage before separately inserting ownership. Hard Function termination in between left unreachable sessions: authorization failed closed, so the impact was a storage leak, not cross-tenant exposure.
+## Authentication and ownership policy
 
-The current Function service uses `createWithOwner` and `forkWithOwner`. Each commits the session (and fork storage/sequence, when applicable) with `agent_session_access` in one PostgreSQL transaction. Ownership insertion failure rolls back all rows; termination before commit cannot leave a committed ownership-free service session. Termination after commit but before the HTTP response can still leave a fully owned session whose generated id the client did not receive. Fork has no idempotency key; a caller-selected destination id makes a retry return `409`, not the original response.
+- The HTTP shell supports one configured principal, not multi-user token validation, shared sessions, ownership transfer, or tenant retirement.
+- Source authorization precedes the fork transaction. Dynamic revocation needs a transactional policy/recheck design; identity headers cannot substitute for it.
 
-Native/internal `PostgresSessionRepo.create` and `fork` intentionally retain the ownership-free Pi repository contract. Using them from an application path without atomic ownership can still create sessions invisible to the API. Existing legacy/internal or abandoned sessions are not reconciled automatically. A production sweeper needs an age threshold and explicit exemption/policy for intentional internal sessions, and should use `deletePiPostgresSession` for coordinated cleanup.
+## Session cleanup and fork limits
 
-## Fork retention and resource limits
+- Service-facing creation/fork now commits ownership atomically, closing the old ownership-free crash window. Internal ownership-free APIs can still create sessions invisible to the HTTP shell.
+- For ownership-free orphans, HTTP authorization fails closed: the impact is unreachable/leaked storage, not cross-tenant API exposure.
+- A commit followed by a lost HTTP response can leave an owned session whose generated id the client never received. Fork has no idempotency key; retrying a caller-selected destination returns `409`, not the original response.
+- Legacy, internal, and abandoned sessions are not reconciled automatically. Cleanup needs age thresholds, internal-session exemptions, and coordinated deletion—not a blanket delete of sessions without an owner.
+- Fork size, rate, storage quota, and retention are unbounded. Even branch forks load the full source before projection and copy selected rows individually; large sources can exceed Function memory/time limits. Add bounds before admitting untrusted callers or large histories.
 
-There is no fork rate limit, per-principal storage quota, or session/fork retention policy. An authorized caller can repeatedly clone a large tree. Fork reads the source entries/values/lists into memory and copies rows individually in one transaction; large trees can exceed Function time or memory limits. Production needs bounded fork sizes, quotas/rate limiting, and retention/reconciliation scheduling.
+Atomic copy and cleanup mechanics are described in [implementation](runtime-implementation.md).
 
-## Multiple principals and ownership policy
+## Recovery and scaling
 
-The HTTP shell uses one configured principal with Bearer-token authentication. It does not implement multi-user token validation, shared sessions, ownership transfer, tenant retirement, or authorization-policy versioning. Source authorization occurs in the service before the fork transaction; dynamic ownership revocation would require a transactional policy/recheck design before supporting multiple principals. Identity headers are never a substitute for that policy.
+- Full-session discovery, bounded admission/projection scans, and one job per tick do not establish queue fairness or throughput.
+- Request-time schema bootstrap needs controlled migrations before shared-deployment/schema rollout complexity grows.
+- Per-invocation connection pools do not enforce a global database connection limit. Measure latency, contention, claim expiry, and backlog before selecting production budgets or SLOs.
+- A small cloud smoke does not qualify second-principal authorization, deliberate deadlines, deployment-switch recovery, hard termination/takeover, tool recovery, or load behavior. Each requires separate evidence.
+
+## Deferred product capabilities
+
+Sandbox lifecycle, durable workspace/artifacts, streaming outbox/replay, and heavy delegated execution are not delivered by this Function slice. Future hosts must preserve native Pi identity, fencing, authorization, and result semantics.

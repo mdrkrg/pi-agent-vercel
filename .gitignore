@@ -1,4 +1,5 @@
 node_modules/
+agent_docs/
 .vercel/
 dist/
 coverage/
