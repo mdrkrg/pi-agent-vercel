@@ -65,6 +65,14 @@ The reader authorizes against persisted submission user/tenant, then reads nativ
 
 Terminal metadata/state may be absent. Output is read from immutable `pi.result.tipId`, never the session's latest transcript. Queue `completed` means the drive job finished, not that Pi succeeded; native results can be `failed` or `aborted`. Native `aborted` maps to product `cancelled`.
 
+## Browser conversation client
+
+The Svelte/Vite client uses TanStack Svelte Query for authorized status/result reads, not execution. A browser controller serializes session creation and prompt submission. Before a message request it saves the exact prompt and fresh retry key to tab-local storage; an unconfirmed submission retries with that identity rather than creating another request. Clear/reset invalidates late mutation responses and aborts local HTTP observation, never calling native abort or the worker.
+
+Tab storage is an allowlisted recovery hint, not durable authority: it excludes credentials, assistant outputs, API diagnostics and the Pi state machine. On reload, credentials must be re-entered; native frozen results reconstruct displayed replies. A round unlocks the composer only after its result is read, including failed/aborted results. Later rounds leave earlier result queries unchanged. Responses are rendered as escaped text, and result output extraction excludes thinking/tool blocks.
+
+Query keys contain submission identity and an in-memory credential generation, never the Token. Visibility gates queries; transient read failures keep work observable, while authentication failures clear the in-memory credential. Local request cancellation has no effect on admitted operations. Commands, polling intervals, storage limits and security prerequisites are in the [Function reference](function-runtime.md#live-chat).
+
 ## Atomic owner-aware forks
 
 `PostgresSessionRepo.createWithOwner` and `forkWithOwner` are the service entry points. Native `create`/`fork` remain ownership-free internal APIs.

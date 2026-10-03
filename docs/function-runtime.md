@@ -7,8 +7,26 @@ Commands, HTTP contract, and deployment settings for the single-principal Functi
 Set the server environment from [.env.example](../.env.example); keep credentials out of Git.
 
 - `pnpm dev:service`: HTTP server with an independent local poller.
+- `pnpm dev:ui`: Svelte/Vite chat at `http://127.0.0.1:5173`, proxying `/api` to `http://127.0.0.1:3000`.
+- `pnpm build`: validate backend/frontend and build static chat into `dist/`.
 - `pnpm worker:once`: one fresh local worker tick.
-- `pnpm check` / `pnpm test`: type-check and contracts; SQL suites need `DATABASE_URL`.
+- `pnpm check` / `pnpm test`: backend/frontend checks and tests; SQL suites need `DATABASE_URL`.
+
+### Live chat
+
+Run `pnpm dev:service` with server environment variables exported, then `pnpm dev:ui` in another terminal. The default proxy assumes service port 3000; update the Vite proxy if using a different `PORT`. On Vercel, the static page at `/` uses the same-origin API directly. No new server credentials or API routes are required.
+
+Enter `POC_API_TOKEN` in **访问密钥**, click **连接**, create a conversation with **新建对话**, then send a message. Connecting sets an in-memory credential; the first API request validates it. `Ctrl/Cmd + Enter` sends; the next round stays disabled until the current frozen result is read. Only assistant text is displayed, without Markdown/HTML interpretation or thinking/tool blocks.
+
+The viewport centers the chat with a scrollable message area. The **?** below the composer opens an upward FAQ on hover/focus (or tap), covering scheduling, browser storage, retry behavior and input limits. Escape, focus leaving the FAQ, or clicking outside dismisses it. Current errors and actionable status stay visible rather than being hidden in help.
+
+- The page polls status/result; it never calls `/api/worker`. Keep an independent scheduler running. Minute cron can add nearly a minute before execution starts; polling faster does not reduce that delay.
+- Running reads poll every 2s; admission/waits and transient errors use 10s. Hidden pages pause querying and resume when visible. Terminal results stop polling. Read failures/timeouts do not cancel or terminalize work; `401`/`403` require fresh credentials.
+- A lost submission response keeps the exact prompt and `Idempotency-Key`. **重试提交** reuses both, including after a refresh. Session creation is not automatically retried because a lost response can leave an owned session whose id is unknown.
+- The page keeps one conversation, up to 50 rounds. `sessionStorage` holds draft, prompt text, session/submission ids and retry keys for this tab; Token and assistant output are not persisted. After refresh, re-enter Token to query frozen outputs or retry an unconfirmed submission. This is not a server-side history browser or a guarantee of recovery after closing the tab.
+- Storage failure is visibly warned: retain the page because refresh may lose retry identity. **清除记录** removes browser records and credentials, not server records or running work. New conversation replaces this tab's old record after successful creation, without deleting it server-side.
+
+The page is for trusted operators of the single configured principal, not a public login system. Use only the API token in the browser; database/provider credentials and `CRON_SECRET` remain server-side. Never put credentials in `VITE_*` variables or static assets. Preserve Preview Deployment Protection; its access check is separate from API authentication. Browser prompt storage is plaintext and should not be used on shared/untrusted devices.
 
 ## Authentication and routes
 
@@ -70,7 +88,7 @@ Pool limits multiply across concurrent Functions. Renewals extend claim expiry, 
 
 ## Vercel and scheduling
 
-Deploy from repository root with Node 24 and the checked-in `vercel.mjs`. Neon integration can supply pooled `DATABASE_URL`; retain its recommended SSL settings.
+Deploy from repository root with Node 24 and the checked-in `vercel.mjs`. The build runs `pnpm build`, serves static chat from `dist/`, and keeps `/api/*` rewrites routed to the existing Function. Neon integration can supply pooled `DATABASE_URL`; retain its recommended SSL settings.
 
 | `AGENT_WORKER_SCHEDULER` | Wake source |
 | --- | --- |

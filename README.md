@@ -17,13 +17,18 @@ Enable the optional pre-commit check with `prek install` (prek >=0.4.8).
 
 Set `DATABASE_URL` to run the PostgreSQL contracts; otherwise SQL suites are skipped. CI supplies disposable PostgreSQL 16.
 
-`pnpm dev:service` starts HTTP plus an independent local poller; `pnpm worker:once` runs one worker tick. See the [Function reference](docs/function-runtime.md) for credentials, routes, and configuration.
+`pnpm dev:service` starts HTTP plus an independent local poller; `pnpm worker:once` runs one worker tick.
+
+For the Svelte live chat, run `pnpm dev:service` with server environment variables exported, then `pnpm dev:ui` in another terminal. Open `http://127.0.0.1:5173`, enter the API token, create a conversation, and send messages. `pnpm build` validates both backend and frontend and produces static assets in `dist/`.
+
+Chat uses polling, not token streaming, and never drives execution. Keep an independent scheduler active on Vercel. Token stays in memory; prompts/retry identities are plaintext in tab-local `sessionStorage`. See [live chat usage](docs/function-runtime.md#live-chat) for refresh/retry behavior and security prerequisites, and the [Function reference](docs/function-runtime.md) for credentials, routes, and configuration.
 
 ## Vercel configuration
 
 Deploy from repository root using the checked-in `vercel.mjs`.
 
 - Runtime: Node 24; pnpm 12.8.1; Function limit 60s.
+- UI: static Svelte/Vite build at `/`; existing `/api/*` routes remain unchanged.
 - Environment: configure [.env.example](.env.example); Neon integration supplies `DATABASE_URL`.
 - Providers: installed Pi built-ins; configure `AGENT_PROVIDER`, `AGENT_MODEL_ID`, and provider credentials.
 - Scheduler: external by default on Hobby; `AGENT_WORKER_SCHEDULER=vercel-cron` enables every-minute cron on Pro/Enterprise.
