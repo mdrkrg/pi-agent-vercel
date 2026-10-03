@@ -27,7 +27,8 @@
 
 ## Verification and delivery
 
-- Run `pnpm check`, `pnpm test`, and `git diff --check`.
+- Run `pnpm check`, `pnpm docs:check`, `pnpm test`, and `git diff --check`.
+- `prek.toml` runs the full tracked-document link check before commits, including source-file-only changes. Install prek >=0.4.8 and enable it with `prek install`; the checker validates local paths, not fragments, remote URLs, or HTML links.
 - For SQL verification, use Podman or Docker to start a disposable `postgres:16` container, point `DATABASE_URL` at it, run `pnpm test`, and stop/remove the container afterward.
 - Use isolated disposable/test databases. Cloud deployments, provider spending, fault injection, and deletion need explicit authorization; never use a business database for validation.
 - Keep credentials and sensitive prompts/results out of logs and Git. Preserve Preview Deployment Protection and use distinct API/worker credentials.

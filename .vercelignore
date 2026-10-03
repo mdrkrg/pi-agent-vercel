@@ -2,6 +2,8 @@
 .vercel/
 .github/
 AGENTS.md
+prek.toml
+scripts/check-doc-links.ts
 docs/
 tests/
 coverage/

@@ -9,8 +9,11 @@ Requires Node 24 and pnpm 12.8.1; Corepack is not required.
 ```sh
 pnpm install
 pnpm check
+pnpm docs:check
 pnpm test
 ```
+
+Enable the optional pre-commit check with `prek install` (prek >=0.4.8).
 
 Set `DATABASE_URL` to run the PostgreSQL contracts; otherwise SQL suites are skipped. CI supplies disposable PostgreSQL 16.
 

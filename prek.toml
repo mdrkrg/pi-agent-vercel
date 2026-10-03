@@ -1,0 +1,14 @@
+minimum_prek_version = "0.4.8"
+default_install_hook_types = ["pre-commit"]
+
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "doc-links"
+name = "check tracked Markdown links"
+language = "system"
+entry = "pnpm docs:check"
+pass_filenames = false
+# A source-file deletion/rename can break an unchanged document.
+always_run = true

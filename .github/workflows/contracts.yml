@@ -30,6 +30,7 @@ jobs:
         run: npm install --global pnpm@12.8.1
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - run: pnpm docs:check
       - run: pnpm test
         env:
           DATABASE_URL: postgresql://poc:poc@127.0.0.1:5432/poc
