@@ -18,7 +18,7 @@ The Function PoC now includes recoverable admission input, fenced bounded drives
 
 Pi owns the effect sandwich and crash detection. External exactly-once execution is not promised; safe/never replay follows native Pi semantics. Sandbox, streaming outbox, and delegated heavy execution are deferred while their architecture interfaces remain available.
 
-The Vercel entry and authenticated worker wake-up are configured but have not been deployed. The HTTP shell uses one configured API principal; full-session discovery and request-time schema bootstrap are small-PoC boundaries.
+The Vercel entry and authenticated worker wake-up are configured; real-provider cloud qualification remains separate from local tests and a successful deployment. The HTTP shell uses one configured API principal; full-session discovery and request-time schema bootstrap are small-PoC boundaries.
 
 The repository CI workflow starts PostgreSQL 16 and runs the full contract suite with `DATABASE_URL`, including fresh-process recovery and control-state tests.
 
@@ -27,6 +27,7 @@ The repository CI workflow starts PostgreSQL 16 and runs the full contract suite
 Deploy from repository root using the checked-in `vercel.mjs`.
 
 - Deployment: Node 24; pnpm 12.8.1; Function limit 60s.
-- Environment: configure [.env.example](.env.example) in Vercel Project Settings.
+- Environment: configure [.env.example](.env.example); Neon integration supplies `DATABASE_URL`.
+- Providers: installed Pi built-ins; configure `AGENT_PROVIDER`, `AGENT_MODEL_ID`, and provider credentials.
 - Scheduler: external by default on Hobby; `AGENT_WORKER_SCHEDULER=vercel-cron` enables every-minute cron on Pro/Enterprise.
 - Worker: `/api/worker`, authenticated with `Authorization: Bearer <CRON_SECRET>`.

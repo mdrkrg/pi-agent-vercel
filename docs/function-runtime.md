@@ -76,7 +76,13 @@ Configured lanes inherit configuration with fresh idle state. Operation/pending/
 
 Fork retention/reconciliation, rate limits/quotas, and multi-principal policy are not implemented. See [known gaps](known-gaps.md).
 
-Provider/model identity and credentials belong to server configuration rather than wake-up payloads. The selected model must be available in the worker's Pi catalog. Execution budgets must preserve at least six seconds of cleanup headroom and fit the configured Function limit. Local polling and platform cron are interchangeable wake sources over the same durable worker contract.
+The environment entry uses Pi's `builtinModels()` to register all installed built-in providers. `AGENT_PROVIDER` / `AGENT_MODEL_ID` select one catalog model; Pi resolves its standard credential variables (e.g. `DEEPSEEK_API_KEY`). Unknown providers/models fail configuration; automatic provider failover is not enabled. `POC_FAUX_RESPONSE` still selects the isolated deterministic provider.
+
+Credentials remain server-side. This entry does not load coding-agent `auth.json`, `models.json`, or extensions, or configure persistent OAuth refresh. Full-provider bundle size and cold-start behavior require deployment validation.
+
+Neon's Vercel integration injects pooled `DATABASE_URL`, usable with the existing `pg` runtime; retain its SSL settings and use an isolated test database. A local scheduler must call the deployed `/api/worker` to validate Function execution. Stop it after testing: minute-by-minute database queries prevent Neon idle suspension and consume compute quota.
+
+Execution budgets must preserve at least six seconds of cleanup headroom and fit the configured Function limit. Local polling and platform cron are interchangeable wake sources over the same durable worker contract.
 
 `vercel.mjs` selects the worker wake-up source at build time. `AGENT_WORKER_SCHEDULER=external` omits the native cron for Hobby deployments; an external scheduler calls `/api/worker`. `AGENT_WORKER_SCHEDULER=vercel-cron` adds the once-per-minute native cron for Pro or Enterprise. Both modes use the same `CRON_SECRET` Bearer authentication and durable worker contract. Cron failures are not automatically retried, so recovery depends on a later invocation. See [cron authentication and retries](https://vercel.com/docs/cron-jobs/manage-cron-jobs), [cron plan limits](https://vercel.com/docs/cron-jobs/usage-and-pricing), and [Function duration](https://vercel.com/docs/functions/configuring-functions/duration).
 

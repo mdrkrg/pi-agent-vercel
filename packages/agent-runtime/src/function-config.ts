@@ -1,6 +1,5 @@
 import { createModels, fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
-import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
-import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
+import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { PgExecutor } from "../../pi-postgres/src/index.ts";
 import { FunctionService } from "./function-service.ts";
 
@@ -13,14 +12,12 @@ function milliseconds(value: string | undefined, fallback: number): number {
 }
 
 export function createFunctionServiceFromEnv(env: NodeJS.ProcessEnv = process.env): FunctionService {
-	const models = createModels(); let model;
+	const models = env.POC_FAUX_RESPONSE === undefined ? builtinModels() : createModels(); let model;
 	if (env.POC_FAUX_RESPONSE !== undefined) {
 		const faux = fauxProvider(); models.setProvider(faux.provider); faux.setResponses([fauxAssistantMessage(env.POC_FAUX_RESPONSE)]); model = faux.getModel();
 	} else {
 		const provider = required(env, "AGENT_PROVIDER");
-		if (provider === "openai") models.setProvider(openaiProvider());
-		else if (provider === "anthropic") models.setProvider(anthropicProvider());
-		else throw new Error("AGENT_PROVIDER must be openai or anthropic");
+		if (models.getProvider(provider) === undefined) throw new Error("Configured provider is absent from the installed Pi catalog");
 		model = models.getModel(provider, required(env, "AGENT_MODEL_ID"));
 		if (model === undefined) throw new Error("Configured model is absent from the installed Pi catalog");
 	}
