@@ -1,9 +1,10 @@
 import { timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { ForkOptions } from "@earendil-works/pi-agent-core/harness/session";
 import type { AgentHarnessTool } from "@earendil-works/pi-agent-core";
 import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/harness/context";
 import type { Api, Model, Models } from "@earendil-works/pi-ai";
-import { DriveJobRepo, ensurePiPostgresSchema, PgExecutor, PostgresSessionRepo, SessionLeaseManager, SubmissionRepo, type SessionLeaseOptions } from "../../pi-postgres/src/index.ts";
+import { DriveJobRepo, ensurePiPostgresSchema, PgExecutor, PostgresSessionRepo, SessionForkConflictError, SessionLeaseManager, SubmissionRepo, type SessionLeaseOptions } from "../../pi-postgres/src/index.ts";
 import { PostgresAdmission } from "./admission.ts";
 import { PostgresFunctionWorker } from "./function-worker.ts";
 import type { Principal } from "./ingress.ts";
@@ -44,6 +45,25 @@ async function body(req: Request): Promise<Record<string, unknown>> {
 	}
 	if (value === null || typeof value !== "object" || Array.isArray(value)) throw new HttpError(400, "Expected a JSON object");
 	return value as Record<string, unknown>;
+}
+
+function forkOptions(input: Record<string, unknown>): ForkOptions {
+	const stringField = (name: string): string | undefined => {
+		const value = input[name];
+		if (value === undefined) return undefined;
+		if (typeof value !== "string" || value.length === 0) throw new HttpError(400, `${name} must be a non-empty string`);
+		return value;
+	};
+	const id = stringField("id");
+	if (input.scope === "tree") {
+		if (input.branch !== undefined || input.entryId !== undefined || input.position !== undefined) throw new HttpError(400, "tree scope does not accept branch, entryId or position");
+		return { scope: "tree", ...(id === undefined ? {} : { id }) };
+	}
+	if (input.scope !== "branch") throw new HttpError(400, "scope must be branch or tree");
+	const branch = stringField("branch"); const entryId = stringField("entryId"); const position = input.position;
+	if (branch === undefined) throw new HttpError(400, "branch must be a non-empty string");
+	if (position !== undefined && position !== "before" && position !== "at") throw new HttpError(400, "position must be before or at");
+	return { scope: "branch", branch, ...(id === undefined ? {} : { id }), ...(entryId === undefined ? {} : { entryId }), ...(position === undefined ? {} : { position }) };
 }
 
 /** A single-principal authenticated PoC shell; each Function owns a fresh composition. */
@@ -88,6 +108,22 @@ export class FunctionService {
 			if (req.method === "POST" && pathname === "/api/sessions") {
 				const session = await this.repo.createWithOwner(principal, BACKGROUND_CONTEXT);
 				const metadata = session.metadata; await session.close(BACKGROUND_CONTEXT); respond(res, 201, { session: metadata }); return;
+			}
+			const fork = /^\/api\/sessions\/([^/]+)\/fork$/.exec(pathname);
+			if (req.method === "POST" && fork !== null) {
+				const source = await this.repo.authorizedMetadata(pathId(fork[1]!), principal.userId, principal.tenantId);
+				if (source === undefined) throw new HttpError(404, "Session not found");
+				const options = forkOptions(await body(req));
+				try {
+					const session = await this.repo.forkWithOwner(source, options, principal, BACKGROUND_CONTEXT);
+					const metadata = session.metadata;
+					await session.close(BACKGROUND_CONTEXT); respond(res, 201, { session: metadata });
+				} catch (error) {
+					if (error instanceof SessionForkConflictError) throw new HttpError(409, error.message);
+					if (error instanceof Error && (error.message.startsWith("Unknown source branch:") || error.message.startsWith("Fork entry ") || /^Source branch .* is not a configured AgentLane$/.test(error.message))) throw new HttpError(400, error.message);
+					throw error;
+				}
+				return;
 			}
 			const messages = /^\/api\/sessions\/([^/]+)\/messages$/.exec(pathname);
 			if (req.method === "POST" && messages !== null) {

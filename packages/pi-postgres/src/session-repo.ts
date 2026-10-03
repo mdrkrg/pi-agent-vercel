@@ -55,6 +55,10 @@ type ForkSelection = {
 };
 
 const IDLE_LANE_STATE = { currentOperationId: null, lastOperationId: null, inbox: [] } as const;
+export type SessionOwner = { readonly userId: string; readonly tenantId: string };
+export class SessionForkConflictError extends Error {
+	constructor(id: string) { super(`Fork destination already exists: ${id}`); this.name = "SessionForkConflictError"; }
+}
 export type PostgresOperationSnapshot = { readonly meta?: OperationMeta; readonly state?: OperationState; readonly result?: OperationResultRecord };
 
 function toNumber(value: string | number): number {
@@ -96,12 +100,12 @@ export class PostgresSessionRepo implements SessionRepo {
 		return this.createInternal({ ...options, id: lease.sessionId }, lease, context);
 	}
 
-	async createWithOwner(owner: { userId: string; tenantId: string }, context: Context): Promise<Session> {
+	async createWithOwner(owner: SessionOwner, context: Context): Promise<Session> {
 		if (owner.userId.length === 0 || owner.tenantId.length === 0) throw new Error("Session owner identity must not be empty");
 		return this.createInternal({}, undefined, context, owner);
 	}
 
-	private async createInternal(options: SessionCreateOptions, lease: SessionLease | undefined, context: Context, owner?: { userId: string; tenantId: string }): Promise<Session> {
+	private async createInternal(options: SessionCreateOptions, lease: SessionLease | undefined, context: Context, owner?: SessionOwner): Promise<Session> {
 		this.assertOpen();
 		const id = options.id ?? uuidv7(this.now());
 		if (this.openSessions.has(id) || this.pendingCreates.has(id)) throw new Error(`Session already open: ${id}`);
@@ -195,17 +199,32 @@ export class PostgresSessionRepo implements SessionRepo {
 		await deletePiPostgresSession(this.executor, metadata.id);
 	}
 
+	/** Native/internal API: does not attach application ownership. */
 	async fork(source: SessionMetadata, options: ForkOptions, context: Context): Promise<Session> {
+		return this.forkInternal(source, options, undefined, context);
+	}
+
+	/** Source authorization belongs to the caller; ownership commits with all fork data. */
+	async forkWithOwner(source: SessionMetadata, options: ForkOptions, owner: SessionOwner, context: Context): Promise<Session> {
+		if (owner.userId.length === 0 || owner.tenantId.length === 0) throw new Error("Session owner identity must not be empty");
+		return this.forkInternal(source, options, owner, context);
+	}
+
+	private async forkInternal(source: SessionMetadata, options: ForkOptions, owner: SessionOwner | undefined, context: Context): Promise<Session> {
 		this.assertOpen();
 		const id = options.id ?? uuidv7(this.now());
-		if (this.openSessions.has(id) || this.pendingCreates.has(id)) throw new Error(`Session already open: ${id}`);
+		if (this.openSessions.has(id) || this.pendingCreates.has(id)) throw new SessionForkConflictError(id);
 		this.pendingCreates.add(id);
 		try {
 			await ensurePiPostgresSchema(this.executor);
 			const sourceStorage = this.openStorages.get(source.id);
 			if (sourceStorage !== undefined) await sourceStorage.whenIdle();
-			const metadata = await this.copyFork(source, options, id);
+			const metadata = await this.copyFork(source, options, id, owner);
 			return this.openHandle(metadata, context);
+		} catch (error) {
+			// Only a session primary-key collision is a destination conflict.
+			if (error !== null && typeof error === "object" && "code" in error && error.code === "23505" && "constraint" in error && error.constraint === "pi_poc_sessions_pkey") throw new SessionForkConflictError(id);
+			throw error;
 		} finally {
 			this.pendingCreates.delete(id);
 		}
@@ -232,7 +251,7 @@ export class PostgresSessionRepo implements SessionRepo {
 		return session;
 	}
 
-	private async copyFork(source: SessionMetadata, options: ForkOptions, id: string): Promise<SessionMetadata> {
+	private async copyFork(source: SessionMetadata, options: ForkOptions, id: string, owner?: SessionOwner): Promise<SessionMetadata> {
 		const createdAt = this.now();
 		return this.executor.transaction(async (transaction) => {
 			await transaction.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
@@ -309,6 +328,9 @@ export class PostgresSessionRepo implements SessionRepo {
 					"INSERT INTO pi_poc_storage_sequences (session_id, next_seq) VALUES ($1, $2)",
 					[id, toNumber(sequence.rows[0].next_seq)],
 				);
+			}
+			if (owner !== undefined) {
+				await transaction.query("INSERT INTO agent_session_access (session_id, user_id, tenant_id) VALUES ($1,$2,$3)", [id, owner.userId, owner.tenantId]);
 			}
 			return {
 				id,
