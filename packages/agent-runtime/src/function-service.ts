@@ -22,6 +22,7 @@ export type FunctionServiceOptions = {
 	readonly lease?: SessionLeaseOptions;
 	readonly maxPassMs?: number;
 	readonly maxInvocationMs?: number;
+	readonly maxAdmissionMs?: number;
 };
 type Request = IncomingMessage & { readonly body?: unknown };
 class HttpError extends Error { constructor(readonly status: number, message: string) { super(message); } }
@@ -87,7 +88,7 @@ export class FunctionService {
 			};
 		};
 		const shared = { repo: this.repo, submissions: this.submissions, leases: this.leases, harnessOptions, ...(options.lease === undefined ? {} : { lease: options.lease }) };
-		this.admission = new PostgresAdmission(shared);
+		this.admission = new PostgresAdmission({ ...shared, ...(options.maxAdmissionMs === undefined ? {} : { maxAdmissionMs: options.maxAdmissionMs }) });
 		this.worker = new PostgresFunctionWorker({ ...shared, jobs: this.jobs, discovery: { models: options.models, model: options.model }, ...(options.maxPassMs === undefined ? {} : { maxPassMs: options.maxPassMs }), ...(options.maxInvocationMs === undefined ? {} : { maxInvocationMs: options.maxInvocationMs }) });
 		this.reader = new PostgresSubmissionReader(this.repo, this.submissions);
 	}

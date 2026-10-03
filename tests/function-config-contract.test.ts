@@ -27,7 +27,7 @@ describe("Function environment configuration (no database or provider calls)", (
 		for (const provider of getBuiltinProviders()) expect(options.models.getProvider(provider)).toBeDefined();
 		expect(options.model).toMatchObject({ provider: "deepseek", id: "deepseek-flash" });
 		expect(options.models.getProvider("faux")).toBeUndefined();
-		expect(options).toMatchObject({ apiToken: "test-api", cronSecret: "test-worker", principal: { userId: "test-user", tenantId: "test-tenant", scopes: ["agent:run"] }, maxPassMs: 45_000, maxInvocationMs: 55_000 });
+		expect(options).toMatchObject({ apiToken: "test-api", cronSecret: "test-worker", principal: { userId: "test-user", tenantId: "test-tenant", scopes: ["agent:run"] }, maxPassMs: 45_000, maxInvocationMs: 55_000, maxAdmissionMs: 10_000 });
 		expect(vi.mocked(PgExecutor).mock.calls[0]![0]).toMatchObject({ connectionString: base.DATABASE_URL, max: 4 });
 	});
 
@@ -68,7 +68,13 @@ describe("Function environment configuration (no database or provider calls)", (
 		expect(message.content).toEqual([{ type: "text", text: "deterministic response" }]);
 	});
 
+	it("allows a measured cloud admission budget with cleanup headroom", () => {
+		expect(configure({ AGENT_ADMISSION_MS: "25000" }).maxAdmissionMs).toBe(25_000);
+	});
+
 	it.each([
+		{ AGENT_ADMISSION_MS: "50000" }, { AGENT_ADMISSION_MS: "0" },
+		{ AGENT_ADMISSION_MS: "invalid" },
 		{ AGENT_PASS_MS: "50000", AGENT_INVOCATION_MS: "55000" },
 		{ AGENT_INVOCATION_MS: "56000" }, { AGENT_PASS_MS: "0" },
 		{ AGENT_INVOCATION_MS: "invalid" },
