@@ -26,6 +26,14 @@ describe.skipIf(databaseUrl === undefined)("Postgres SessionRepo contract", () =
 		await executor.close();
 	});
 
+	describe("owner-aware fork preserves native content policy", () => {
+		registerConformanceCases(createSessionRepoForkConformance(async () => {
+			const repo = await sessionRepoFactory();
+			repo.fork = (source, options, context) => repo.forkWithOwner(source, options, { userId: "contract-user", tenantId: "contract-tenant" }, context);
+			return repo;
+		}));
+	});
+
 	registerConformanceCases([
 		...createSessionRepoLifecycleConformance(sessionRepoFactory),
 		...createSessionRepoMessageConformance(sessionRepoFactory),

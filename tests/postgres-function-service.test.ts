@@ -20,15 +20,15 @@ describe.skipIf(databaseUrl === undefined)("Function service durable composition
 	afterEach(async () => { for (const id of sessions.splice(0)) await deletePiPostgresSession(executor, id); toolContexts.length = 0; });
 	afterAll(async () => executor.close());
 
-	async function invoke(path: string, options: { method?: string; body?: unknown; token?: string; key?: string; userId?: string } = {}) {
+	async function invoke(path: string, options: { method?: string; body?: unknown; token?: string; key?: string; userId?: string; tenantId?: string } = {}) {
 		const models = createModels(); const faux = fauxProvider(); models.setProvider(faux.provider);
 		faux.setResponses([fauxAssistantMessage(fauxToolCall("whoami", {})), fauxAssistantMessage("final answer")]);
 		const tool: AgentHarnessTool<ServiceToolContext> = {
 			name: "whoami", label: "Who am I", description: "Return the durable user", parameters: { type: "object", properties: {} }, replay: "safe",
 			execute: async (_id, _args, _update, context) => { toolContexts.push(context); return { content: [{ type: "text", text: context.principal.userId }], details: undefined }; },
 		};
-		const service = new FunctionService({ executor: new PgExecutor({ connectionString: databaseUrl, max: 4 }), models, model: faux.getModel(), tools: [tool], apiToken: "api-token", cronSecret: "cron-token", principal: { userId: options.userId ?? "u", tenantId: "t", scopes: ["agent:run"] } });
-		const req = Object.assign(Readable.from([]), { url: path, method: options.method ?? "GET", body: options.body, headers: { authorization: `Bearer ${options.token ?? "api-token"}`, "idempotency-key": options.key, "x-user-id": "attacker" } });
+		const service = new FunctionService({ executor: new PgExecutor({ connectionString: databaseUrl, max: 4 }), models, model: faux.getModel(), tools: [tool], apiToken: "api-token", cronSecret: "cron-token", principal: { userId: options.userId ?? "u", tenantId: options.tenantId ?? "t", scopes: ["agent:run"] } });
+		const req = Object.assign(Readable.from([]), { url: path, method: options.method ?? "GET", body: options.body, headers: { authorization: `Bearer ${options.token ?? "api-token"}`, "idempotency-key": options.key, "x-user-id": "attacker", "x-tenant-id": "attacker-tenant" } });
 		const res = new Response();
 		try { await service.handle(req as unknown as IncomingMessage, res as unknown as ServerResponse); }
 		finally { await service.close(); }
@@ -64,6 +64,47 @@ describe.skipIf(databaseUrl === undefined)("Function service durable composition
 		await invoke("/api/worker", { token: "cron-token" });
 		expect((await invoke(`/api/submissions/${second.body.submission.id}`)).body.submission.status).toBe("completed");
 		expect(toolContexts).toHaveLength(2);
+	});
+
+	it("tree forks inherit ownership, isolate tenants, and accept a fresh durable message", async () => {
+		const created = await invoke("/api/sessions", { method: "POST" });
+		const source: string = created.body.session.id; sessions.push(source);
+		await invoke(`/api/sessions/${source}/messages`, { method: "POST", body: { prompt: "source prompt" }, key: "source" });
+		await invoke("/api/worker", { token: "cron-token" });
+		for (const identity of [{ userId: "other" }, { tenantId: "other" }]) {
+			expect(await invoke(`/api/sessions/${source}/fork`, { method: "POST", body: { scope: "tree" }, ...identity })).toMatchObject({ status: 404 });
+		}
+		const forked = await invoke(`/api/sessions/${source}/fork`, { method: "POST", body: { scope: "tree" } });
+		expect(forked.status).toBe(201);
+		const id: string = forked.body.session.id; sessions.push(id);
+		expect(forked.body.session.parentSessionId).toBe(source);
+		expect((await executor.query("SELECT user_id, tenant_id FROM agent_session_access WHERE session_id=$1", [id])).rows).toEqual([{ user_id: "u", tenant_id: "t" }]);
+		for (const identity of [{ userId: "other" }, { tenantId: "other" }]) {
+			expect(await invoke(`/api/sessions/${id}/messages`, { method: "POST", body: { prompt: "no" }, key: "other", ...identity })).toMatchObject({ status: 404 });
+			expect(await invoke(`/api/sessions/${id}/fork`, { method: "POST", body: { scope: "tree" }, ...identity })).toMatchObject({ status: 404 });
+		}
+		const accepted = await invoke(`/api/sessions/${id}/messages`, { method: "POST", body: { prompt: "fork prompt" }, key: "fork" });
+		expect(accepted.status).toBe(202);
+		await invoke("/api/worker", { token: "cron-token" });
+		expect(await invoke(`/api/submissions/${accepted.body.submission.id}/result`)).toMatchObject({ status: 200, body: { result: { status: "completed" } } });
+		expect(await invoke(`/api/submissions/${accepted.body.submission.id}/result`, { tenantId: "other" })).toMatchObject({ status: 404 });
+	});
+
+	it.each(["before", "at"])("branch fork projects entries at position %s and rejects duplicate ids", async (position) => {
+		const created = await invoke("/api/sessions", { method: "POST" });
+		const source: string = created.body.session.id; sessions.push(source);
+		await invoke(`/api/sessions/${source}/messages`, { method: "POST", body: { prompt: "hello" }, key: "seed" });
+		await invoke("/api/worker", { token: "cron-token" });
+		const entries = await executor.query<{ id: string }>("SELECT id FROM pi_poc_storage_entries WHERE session_id=$1 ORDER BY seq ASC", [source]);
+		const entryId = entries.rows[1]!.id;
+		const id = `${source}-${position}`; sessions.push(id);
+		const input = { scope: "branch", branch: "main", entryId, position, id };
+		expect(await invoke(`/api/sessions/${source}/fork`, { method: "POST", body: input })).toMatchObject({ status: 201, body: { session: { id, parentSessionId: source } } });
+		expect((await executor.query("SELECT id FROM pi_poc_storage_entries WHERE session_id=$1 ORDER BY seq ASC", [id])).rows).toEqual(entries.rows.slice(0, position === "before" ? 1 : 2));
+		expect(await invoke(`/api/sessions/${source}/fork`, { method: "POST", body: input })).toMatchObject({ status: 409 });
+		expect((await executor.query("SELECT user_id, tenant_id FROM agent_session_access WHERE session_id=$1", [id])).rows).toEqual([{ user_id: "u", tenant_id: "t" }]);
+		expect(await invoke(`/api/sessions/${source}/fork`, { method: "POST", body: { scope: "branch", branch: "missing" } })).toMatchObject({ status: 400 });
+		expect(await invoke(`/api/sessions/${source}/fork`, { method: "POST", body: { scope: "branch", branch: "main", entryId: "missing" } })).toMatchObject({ status: 400 });
 	});
 
 	it("rolls back session creation if its ownership insert fails", async () => {
