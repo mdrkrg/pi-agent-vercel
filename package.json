@@ -18,6 +18,7 @@
     "docs:check": "tsx scripts/check-doc-links.ts",
     "dev:service": "tsx scripts/local-service.ts",
     "worker:once": "tsx scripts/function-worker.ts",
+    "worker:external": "tsx scripts/worker-external.ts",
     "test": "vitest run --config vitest.config.ts && pnpm --filter @pi-agent/chat test"
   },
   "devEngines": {

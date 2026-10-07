@@ -73,6 +73,8 @@ Deploy from repository root with Node 24 and the checked-in `vercel.mjs`. The bu
 
 Scheduler selection is build-time; changing it requires redeployment. Both modes use `Authorization: Bearer <CRON_SECRET>`. A later invocation repairs interrupted work; native cron failures are not automatically retried.
 
+For foreground scheduling during development, use the [external worker command](development.md#deployed-worker).
+
 For validation, use an isolated database and an authorized provider budget. Preserve Preview Deployment Protection; platform access and application Bearer authentication are separate requirements. Use a bounded independent scheduler, not smoke-client ticks or local `worker:once`, to prove deployed execution. Stop it afterward: minute-by-minute queries prevent Neon idle suspension and consume quota.
 
 The current worker drives one job per tick, scans up to 100 admission/projection rows, and discovers sessions by a full scan. Schema bootstrap runs at request time. These are PoC limits, not throughput or recovery SLOs; see [known gaps](known-gaps.md).
