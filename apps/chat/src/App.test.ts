@@ -114,18 +114,16 @@ describe("Svelte live chat", () => {
       turns: [{ key: "k", prompt: "question", submissionId: "id", terminal: false }],
     });
     let reads = 0;
-    const request = vi
-      .fn<typeof fetch>()
-      .mockImplementation(async (path) =>
-        String(path).endsWith("/result")
-          ? ++reads === 1
-            ? json({}, 409)
-            : json(result("finished"))
-          : json({
-              submission: { id: "id", status: "completed" },
-              result: { status: "completed" },
-            }),
-      );
+    const request = vi.fn<typeof fetch>().mockImplementation(async (path) =>
+      String(path).endsWith("/result")
+        ? ++reads === 1
+          ? json({}, 409)
+          : json(result("finished"))
+        : json({
+            submission: { id: "id", status: "completed" },
+            result: { status: "completed" },
+          }),
+    );
     vi.stubGlobal("fetch", request);
     render(App);
     await connect();

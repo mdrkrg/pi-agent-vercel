@@ -11,6 +11,9 @@
   "scripts": {
     "check": "tsc --noEmit && pnpm --filter @pi-agent/chat check",
     "build": "pnpm check && pnpm --filter @pi-agent/chat build",
+    "dev:faux": "tsx scripts/dev.ts start",
+    "dev:stop": "tsx scripts/dev.ts stop",
+    "dev:reset": "tsx scripts/dev.ts reset",
     "dev:ui": "pnpm --filter @pi-agent/chat dev",
     "docs:check": "tsx scripts/check-doc-links.ts",
     "dev:service": "tsx scripts/local-service.ts",
@@ -32,6 +35,7 @@
   "devDependencies": {
     "@types/node": "22.19.19",
     "@types/pg": "8.15.5",
+    "concurrently": "10.0.5",
     "marked": "18.0.14",
     "tsx": "4.23.15",
     "typescript": "7.0.2",
