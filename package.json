@@ -9,11 +9,13 @@
   },
   "description": "Durable agent runtime proof of concept",
   "scripts": {
-    "check": "tsc --noEmit",
+    "check": "tsc --noEmit && pnpm --filter @pi-agent/chat check",
+    "build": "pnpm check && pnpm --filter @pi-agent/chat build",
+    "dev:ui": "pnpm --filter @pi-agent/chat dev",
     "docs:check": "tsx scripts/check-doc-links.ts",
     "dev:service": "tsx scripts/local-service.ts",
     "worker:once": "tsx scripts/function-worker.ts",
-    "test": "vitest run --config vitest.config.ts"
+    "test": "vitest run --config vitest.config.ts && pnpm --filter @pi-agent/chat test"
   },
   "devEngines": {
     "runtime": {

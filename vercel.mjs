@@ -11,8 +11,8 @@ const config = {
 	$schema: "https://openapi.vercel.sh/vercel.json",
 	framework: null,
 	installCommand: "npx --yes pnpm@12.8.1 install --frozen-lockfile",
-	buildCommand: "npx --yes pnpm@12.8.1 run check",
-	outputDirectory: "public",
+	buildCommand: "npx --yes pnpm@12.8.1 run build",
+	outputDirectory: "dist",
 	fluid: true,
 	functions: {
 		"api/index.ts": {
