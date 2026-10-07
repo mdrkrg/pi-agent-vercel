@@ -4,34 +4,30 @@ A resumable agent runtime for short-lived Functions: Pi owns agent semantics, Po
 
 ## Local development
 
-Requires Node 24 and pnpm 12.8.1; Corepack is not required.
+Start the local FAUX chat with Podman/Docker. See [Development](docs/development.md) for setup, configuration and verification.
 
 ```sh
 pnpm install
-pnpm check
-pnpm docs:check
-pnpm test
+pnpm dev:faux   # http://127.0.0.1:5173
+# Ctrl+C stops the stack and keeps database data.
+pnpm dev:stop   # Stop a leftover development database after exiting the runner.
+pnpm dev:reset  # Confirm before deleting development data.
 ```
-
-Enable the optional pre-commit check with `prek install` (prek >=0.4.8).
-
-Set `DATABASE_URL` to run the PostgreSQL contracts; otherwise SQL suites are skipped. CI supplies disposable PostgreSQL 16.
-
-`pnpm dev:service` starts HTTP plus an independent local poller; `pnpm worker:once` runs one worker tick. See the [Function reference](docs/function-runtime.md) for credentials, routes, and configuration.
 
 ## Vercel configuration
 
-Deploy from repository root using the checked-in `vercel.mjs`.
+Deploy from repository root using the checked-in `vercel.mjs`. See the [Function reference](docs/function-runtime.md) for the HTTP contract and deployment settings.
 
-- Runtime: Node 24; pnpm 12.8.1; Function limit 60s.
-- Environment: configure [.env.example](.env.example); Neon integration supplies `DATABASE_URL`.
-- Providers: installed Pi built-ins; configure `AGENT_PROVIDER`, `AGENT_MODEL_ID`, and provider credentials.
-- Scheduler: external by default on Hobby; `AGENT_WORKER_SCHEDULER=vercel-cron` enables every-minute cron on Pro/Enterprise.
+- Runtime: Node 24, pnpm 12.8.1. Function limit 60s.
+- UI: static Svelte/Vite build at `/`, existing `/api/*` routes remain unchanged.
+- Environment: configure [.env.example](.env.example). Neon integration supplies `DATABASE_URL`.
+- Providers: installed Pi built-ins, configure `AGENT_PROVIDER`, `AGENT_MODEL_ID`, and provider credentials.
+- Scheduler: external by default on Hobby, `AGENT_WORKER_SCHEDULER=vercel-cron` enables every-minute cron on Pro/Enterprise.
 - Worker: `/api/worker`, authenticated with `Authorization: Bearer <CRON_SECRET>`.
 
 ## Scope and documentation
 
-This PoC supports one configured principal and one main lane. It does not promise exactly-once external effects or production readiness; Sandbox, streaming, and heavy delegated execution remain deferred.
+This PoC supports one configured principal and one main lane. It does not promise exactly-once external effects or production readiness. Sandbox, streaming, and heavy delegated execution are deferred.
 
 - [Architecture](docs/architecture.md) and [durable contract](docs/operation-aware-contract.md): design and guarantees.
 - [Implementation](docs/runtime-implementation.md): persistence and recovery mechanics.

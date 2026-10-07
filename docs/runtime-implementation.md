@@ -1,31 +1,17 @@
 # Runtime implementation
 
-Current mechanics of the Function PoC; not a second definition of Pi's contract. See [architecture](architecture.md) and the [durable contract](operation-aware-contract.md) for guarantees, and the [Function reference](function-runtime.md) for routes/configuration.
+Pi runs the agent, with PostgreSQL for durability and the application for authorization and scheduling. See [architecture](architecture.md), the [durable contract](operation-aware-contract.md), and the [Function reference](function-runtime.md).
 
 ## Records and source map
 
-`StorageBackedSession` supplies native Pi session behavior; the Harness owns operation transitions. The adapter preserves these upstream boundaries:
+- **Native state:** conversation, usage, operations and results stay in Pi's storage contract. There is no second application effect ledger.
+- **Access** (`agent_session_access`): user/tenant ownership, committed with session creation or fork.
+- **Submissions** (`agent_submissions`): request identity and rebuildable status/result references.
+- **Pending requests** (`agent_submission_requests`): saved input and reserved operation identity for admission recovery.
+- **Drive jobs** (`agent_drive_jobs`): when work should run and who currently claims it.
+- **Session leases** (`agent_session_leases`): the active writer and its fencing epoch.
 
-| Interface | Adapter boundary |
-| --- | --- |
-| `Storage` | Atomic `commit(writes, context)`, durable reads, ordering, and lease validation |
-| `Session` | Native conversation/branch/value behavior through `StorageBackedSession` |
-| `SessionMutation` | Exclusive local mutation barrier; zero or one commit attempt, then `end` invalidates/releases the capability |
-| `SessionRepo` | Lifecycle, local handle ownership, and native fork policy |
-
-Pi's `MemoryStorage` (backed by `InMemoryStorageState`) and `MemorySessionRepo` are the behavioral references. Native conformance factories define shared behavior across backends; repository tests add SQL, fencing, authorization, and process-recovery cases, not another transition validator.
-
-The PostgreSQL adapter stores operation metadata/state, immutable results, and pending data as namespaced values/lists (`pi.op.meta`, `pi.op.state`, `pi.result`, `pi.pending.*`), alongside entries and usage. There is no application operation/effect table.
-
-| Application record | Responsibility |
-| --- | --- |
-| `agent_session_access` | User/tenant ownership, atomic with service-facing creation/fork |
-| `agent_submissions` | Idempotency identity and rebuildable status/result reference |
-| `agent_submission_requests` | Recoverable prompt/lane and reserved Pi operation id |
-| `agent_drive_jobs` | Due time, attempts, deferred handles, renewable fenced claims |
-| `agent_session_leases` | Exclusive session writer and increasing fencing epoch |
-
-Source entry points:
+Start reading the code here:
 
 - [Schema](../packages/pi-postgres/src/schema.ts), [storage](../packages/pi-postgres/src/storage.ts), and [session repository](../packages/pi-postgres/src/session-repo.ts).
 - [Admission](../packages/agent-runtime/src/admission.ts), [worker](../packages/agent-runtime/src/function-worker.ts), and [coordinator](../packages/agent-runtime/src/recovery.ts).
@@ -33,73 +19,48 @@ Source entry points:
 
 ## Admission and publication
 
-1. Commit the submission and recoverable input. The submission id reserves the Pi operation id.
-2. Under fenced session ownership, query native metadata/result before calling Pi `accept`; `accept` is not an idempotent lookup.
-3. Busy lanes/leases leave input pending for a later worker. Reusing an idempotency key with changed prompt/lane is rejected.
-4. In one lease-validated SQL transaction, attach the operation, link/enqueue the job, and delete pending input.
-
-Pi acceptance and application publication are separate transactions. Stored input, stable identity, query-before-accept, and fencing repair that gap. Discovery-created jobs can later be linked to their submission.
+- **Save first:** persist the submission and input. The submission id also reserves the Pi operation id.
+- **Check before accepting:** under a fenced lease, look for an existing native operation/result. Calling Pi `accept` again is not an idempotent lookup.
+- **Wait safely:** a busy lane leaves input pending. Reusing a request key with different input is rejected.
+- **Publish atomically:** attach the operation, enqueue/link its job and remove pending input in one lease-validated transaction.
+- Acceptance and publication are separate commits. Saved input and stable identity let the worker repair interruptions without a client retry.
 
 ## Worker and fencing
 
-`PostgresFunctionWorker.tick` performs four phases:
-
-1. Recover pending admission.
-2. Discover native open operations.
-3. Claim and run one due drive job.
-4. Reconcile unsettled submissions.
-
-Wake-ups carry no principal or operation payload. Harness/tool context is rebuilt from the matching persisted submission, with session ownership rechecked. Result polling never calls the worker.
-
-Normal lifecycle order is **acquire lease → open fenced session/harness → drive → close harness → release lease**. Before release, cleanup awaits harness closure (or session closure if no harness opened) and any in-flight renewal. Cleanup uses a non-aborted context; even a cleanup error still attempts release. Hard process termination can bypass this sequence, leaving takeover to expiry.
-
-Session mutation transactions validate holder, epoch, and expiry while locking the lease row. Release expires rather than deletes that row, so epochs never reset when a holder id is reused.
-
-Both session ownership and job claims renew during a pass. Waiting retry/deferred work releases them; native `notBefore`, provider handles, and poll times determine later scheduling.
-
-Renewal failure, local expiry, parent cancellation, or deadline aborts the observer and closes the harness to seal Pi's effect gate. Cleanup leaves native work recoverable rather than recording a user abort. A remote effect already sent may still complete; hard termination may leave claims until expiry.
+- **Each tick:** recover admissions → discover open operations → run one due job → reconcile submissions.
+- **Authority comes from storage:** rebuild principal/tool context from the authorized submission, not the wake-up payload. Result polling never runs the worker.
+- **Writer lifecycle:** acquire lease → open harness → drive → close harness → release lease. Await closure and in-flight renewal before release. Attempt release even if cleanup fails.
+- **Fence every write:** lock the lease row and validate holder, epoch and expiry in the mutation transaction. Release expires the row rather than resetting its epoch.
+- **Renew while running:** session leases and job claims renew during a pass. Waiting work releases them for later scheduling.
+- **Stop effects, not the operation:** ownership loss or a deadline closes the harness effect gate without recording a user abort.
+- **External effects remain uncertain:** already-sent effects may still finish. Fencing does not promise exactly-once execution.
+- Hard termination can bypass cleanup. Recovery waits for outstanding claims to expire, then delegates effect replay and deferred polling to Pi.
 
 ## Result reads and projections
 
-The reader authorizes against persisted submission user/tenant, then reads native metadata/state/result in one SQL snapshot. Reads or worker ticks repair product projections; a delayed open snapshot cannot revive a terminal projection.
+- **Authorize first:** check persisted user/tenant ownership and read native state/result in one SQL snapshot.
+- **Keep old replies fixed:** read output from the immutable result's `tipId`, not the latest conversation tip. Terminal metadata may already be gone.
+- **Repair status:** reads and worker ticks rebuild projections. Stale reads cannot reopen a terminal submission.
+- **Job completion is not success:** use Pi's terminal result. Native `aborted` is exposed as `cancelled`.
 
-Terminal metadata/state may be absent. Output is read from immutable `pi.result.tipId`, never the session's latest transcript. Queue `completed` means the drive job finished, not that Pi succeeded; native results can be `failed` or `aborted`. Native `aborted` maps to product `cancelled`.
+## Browser conversation client
+
+- **Observe, don't execute:** the browser submits sequential turns and polls durable results. It never calls the worker.
+- **Retry the same request:** save the prompt and retry identity before sending, so an uncertain response does not require a duplicate submission.
+- **Local recovery only:** tab storage keeps drafts, prompts and recovery IDs, not credentials or assistant output. Replies are re-read and rendered as escaped text.
+- **Keep server work independent:** clearing local history or cancelling a browser request does not cancel admitted work.
+- Local setup and usage are in [Development](development.md#chat-ui).
 
 ## Atomic owner-aware forks
 
-`PostgresSessionRepo.createWithOwner` and `forkWithOwner` are the service entry points. Native `create`/`fork` remain ownership-free internal APIs.
-
-Fork drains already-admitted local source commits, reserves the destination id, and copies under a repeatable-read transaction. That transaction includes source sequence high-water mark and destination ownership; any failure rolls back session, storage, sequence, and owner rows.
-
-The snapshot excludes later commits from another process. Fork does not acquire the source's mutable lease or wait for its active operation to finish.
-
-Both tree and branch forks load all source entries/values/lists into memory before projection, then insert selected rows individually in the same transaction. Branch scope reduces the copied path, not the initial source read; large sources can exceed Function memory/time budgets even for a small branch fork.
-
-- Configured lanes inherit configuration with fresh idle state.
-- Operation, pending, result, usage, submission, and job state are not copied.
-- Tree scope copies application values/lists; branch scope omits them.
-- Native fork projection and ancestry rules remain authoritative.
-
-Source authorization currently precedes the transaction. Dynamic revocation requires a transactional policy design before multi-principal support; see [known gaps](known-gaps.md).
-
-Session cleanup uses `deletePiPostgresSession` in the schema module to coordinate deletion; retention/reconciliation policy remains unimplemented.
-
-## Recovery matrix
-
-These are required repairs, not a claim that every case has been exercised on Vercel.
-
-| Interrupted boundary | Repair |
-| --- | --- |
-| Input committed before Pi admission | Admit stored prompt without client retry |
-| Pi admission before publication | Find reserved identity and publish/link its job |
-| Publication before HTTP response | Finish the existing operation without another user entry |
-| Pi terminal/job completion before projection | Rebuild status/output from immutable result |
-| Assistant effect pending | Native synthetic settlement and captured retry policy |
-| Deferred wait persisted | Poll the same durable provider handle |
-| Safe tool effect pending | Replay stable invocation identity with reconstructed context |
-| Never tool effect pending | Native unknown-outcome error without repeated invocation |
-
-Projection scanning stops between requests on cancellation; remaining work waits for another tick. Native replay/accounting limits are defined in the [durable contract](operation-aware-contract.md).
+- **Service entry points:** `createWithOwner` / `forkWithOwner` include ownership. Native `create` / `fork` remain ownership-free internal APIs.
+- **One snapshot, one commit:** drain local writes, reserve the destination, then copy storage, sequence state and ownership in a repeatable-read transaction. Failure rolls everything back.
+- **No source pause:** the snapshot excludes later writes from other processes. Forking does not wait for an active source operation to finish.
+- **Fresh execution state:** lanes start idle. Operations, pending work, results, usage, submissions and jobs are not copied.
+- **Application data:** tree forks copy application values/lists. Branch forks omit them.
+- **Size limit:** both scopes load the whole source into memory and insert rows individually. Large forks can exceed Function budgets.
+- **Authorization gap:** source authorization precedes the transaction. Dynamic revocation is not yet supported. See [known gaps](known-gaps.md).
+- **Deletion:** `deletePiPostgresSession` coordinates cleanup. Retention policy remains unimplemented.
 
 ## Test map
 
@@ -107,3 +68,5 @@ Projection scanning stops between requests on cancellation; remaining work waits
 - Admission/ownership/results: [admission](../tests/postgres-admission-contract.test.ts), [drive ownership](../tests/postgres-drive-ownership.test.ts), and [results](../tests/postgres-submission-result.test.ts).
 - Fresh-process behavior: [SIGKILL boundaries](../tests/postgres-function-crash.test.ts), [tool recovery](../tests/postgres-tool-recovery.test.ts), and [independent local service](../tests/postgres-local-service.test.ts).
 - Forks: [HTTP contract](../tests/function-fork-http-contract.test.ts), [atomic ownership](../tests/postgres-owner-fork.test.ts), and [database service](../tests/postgres-function-service.test.ts).
+
+Local recovery tests are not Vercel hard-termination qualification. Native replay guarantees belong to the [durable contract](operation-aware-contract.md).

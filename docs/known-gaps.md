@@ -5,6 +5,7 @@ The Function PoC is not production-qualified. These limits remain even when loca
 ## Authentication and ownership policy
 
 - The HTTP shell supports one configured principal, not multi-user token validation, shared sessions, ownership transfer, or tenant retirement.
+- The browser chat requires a trusted operator to enter that principal's API token. It is not a public authentication system or a server-side credential proxy. Prompt/retry records in tab storage are plaintext; browser-local recovery can be lost through storage failure or tab closure.
 - Source authorization precedes the fork transaction. Dynamic revocation needs a transactional policy/recheck design; identity headers cannot substitute for it.
 
 ## Session cleanup and fork limits
@@ -25,5 +26,7 @@ Atomic copy and cleanup mechanics are described in [implementation](runtime-impl
 - A small cloud smoke does not qualify second-principal authorization, deliberate deadlines, deployment-switch recovery, hard termination/takeover, tool recovery, or load behavior. Each requires separate evidence.
 
 ## Deferred product capabilities
+
+The browser chat provides polling-based text conversation, not token streaming, tool traces, Markdown rendering, server-side history browsing, or cross-device restoration. Reopening a populated tab re-reads each stored terminal result; concurrent reads multiply Function/database load and have not been load-qualified.
 
 Sandbox lifecycle, durable workspace/artifacts, streaming outbox/replay, and heavy delegated execution are not delivered by this Function slice. Future hosts must preserve native Pi identity, fencing, authorization, and result semantics.
