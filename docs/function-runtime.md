@@ -1,14 +1,6 @@
 # Function reference
 
-Commands, HTTP contract, and deployment settings for the single-principal Function PoC. Design lives in [architecture](architecture.md); persistence/recovery mechanics live in [implementation](runtime-implementation.md).
-
-## Local commands
-
-Set the server environment from [.env.example](../.env.example); keep credentials out of Git.
-
-- `pnpm dev:service`: HTTP server with an independent local poller.
-- `pnpm worker:once`: one fresh local worker tick.
-- `pnpm check` / `pnpm test`: type-check and contracts; SQL suites need `DATABASE_URL`.
+HTTP contract and deployment settings for the single-principal Function PoC. See [Development](development.md) for local commands and chat usage, [architecture](architecture.md) for design, and [implementation](runtime-implementation.md) for persistence/recovery mechanics.
 
 ## Authentication and routes
 
@@ -70,7 +62,7 @@ Pool limits multiply across concurrent Functions. Renewals extend claim expiry, 
 
 ## Vercel and scheduling
 
-Deploy from repository root with Node 24 and the checked-in `vercel.mjs`. Neon integration can supply pooled `DATABASE_URL`; retain its recommended SSL settings.
+Deploy from repository root with Node 24 and the checked-in `vercel.mjs`. The build runs `pnpm build`, serves static chat from `dist/`, and keeps `/api/*` rewrites routed to the existing Function. Neon integration can supply pooled `DATABASE_URL`; retain its recommended SSL settings.
 
 | `AGENT_WORKER_SCHEDULER` | Wake source |
 | --- | --- |
