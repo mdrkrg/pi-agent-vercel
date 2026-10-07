@@ -1,0 +1,115 @@
+* {
+  box-sizing: border-box;
+}
+body {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+#app {
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+main {
+  width: 100%;
+  max-width: 800px;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+main > * {
+  flex-shrink: 0;
+}
+header,
+.row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+header,
+.composer-actions {
+  justify-content: space-between;
+}
+header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+label {
+  display: block;
+}
+.row > * {
+  margin: 0;
+}
+.row input {
+  flex: 1;
+  min-width: 160px;
+}
+small,
+.muted {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+.transcript {
+  margin: 24px 0;
+  min-height: 0;
+  overflow-y: auto;
+  flex-shrink: 1;
+}
+.turn {
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+}
+.message + .message {
+  margin-top: 12px;
+}
+.message p {
+  margin: 4px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.error {
+  color: #a00;
+}
+.composer-actions {
+  margin-top: 8px;
+}
+.faq-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+.faq {
+  position: relative;
+}
+.faq-trigger {
+  margin: 0;
+  padding: 4px 12px;
+}
+.faq-panel {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  z-index: 1;
+  width: min(28rem, calc(100vw - 40px));
+  max-height: min(70vh, 32rem);
+  overflow: auto;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  border: 1px solid var(--border);
+  background: var(--background-body);
+}
+.faq-panel dl {
+  margin-bottom: 0;
+}
+.faq-panel dt {
+  font-weight: 600;
+}
+.faq-panel dd {
+  margin: 4px 0 16px;
+}
