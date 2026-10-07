@@ -1,0 +1,25 @@
+{
+  "name": "@pi-agent/chat",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "vitest run --config vite.config.ts"
+  },
+  "dependencies": {
+    "@tanstack/svelte-query": "6.2.5",
+    "svelte": "5.55.1",
+    "water.css": "2.1.1"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@testing-library/svelte": "5.4.2",
+    "jsdom": "29.0.1",
+    "svelte-check": "4.7.6",
+    "typescript": "6.0.3",
+    "vite": "8.3.2",
+    "vitest": "4.1.9"
+  }
+}
