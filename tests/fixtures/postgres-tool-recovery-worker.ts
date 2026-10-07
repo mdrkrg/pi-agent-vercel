@@ -6,10 +6,10 @@ import { PgExecutor, PostgresSessionRepo, SessionLeaseManager } from "../../pack
 import { acceptPrompt, driveOperation, drivePostgresOperation, openAgentHarness } from "../../packages/agent-runtime/src/index.ts";
 
 const mode = process.argv[2] as "start" | "resume" | undefined;
-const sessionId = process.env.POC_SESSION_ID;
+const sessionId = process.env.TEST_SESSION_ID;
 const databaseUrl = process.env.DATABASE_URL;
-const effectFile = process.env.POC_EFFECT_FILE;
-const replay = process.env.POC_REPLAY === "safe" ? "safe" : "never";
+const effectFile = process.env.TEST_EFFECT_FILE;
+const replay = process.env.TEST_REPLAY === "safe" ? "safe" : "never";
 if (mode === undefined || sessionId === undefined || databaseUrl === undefined || effectFile === undefined) throw new Error("worker configuration is incomplete");
 
 const executor = new PgExecutor({ connectionString: databaseUrl });
@@ -46,8 +46,8 @@ try {
 		await driveOperation(lane, admission.value.operationId, BACKGROUND_CONTEXT);
 	} else {
 		const repo = new PostgresSessionRepo(executor);
-		const operationId = process.env.POC_OPERATION_ID;
-		if (operationId === undefined) throw new Error("POC_OPERATION_ID is required");
+		const operationId = process.env.TEST_OPERATION_ID;
+		if (operationId === undefined) throw new Error("TEST_OPERATION_ID is required");
 		const leases = new SessionLeaseManager(executor);
 		const driven = await drivePostgresOperation({ repo, leases, session: { id: sessionId, createdAt: 0, storageVersion: 1 }, models, model, tools: [tool], toolContext: { phase: "resume" } }, operationId, BACKGROUND_CONTEXT);
 		if (!driven.ok || driven.value.kind !== "settled") throw new Error(`recovery did not settle: ${JSON.stringify(driven)}`);

@@ -4,11 +4,11 @@ import { PgExecutor, PostgresSessionRepo, SessionLeaseManager } from "../../pack
 import { acceptPrompt, drivePostgresOperation, openAgentHarness } from "../../packages/agent-runtime/src/index.ts";
 
 const mode = process.argv[2];
-const sessionId = process.env.POC_SESSION_ID;
+const sessionId = process.env.TEST_SESSION_ID;
 const databaseUrl = process.env.DATABASE_URL;
 
 if (sessionId === undefined || databaseUrl === undefined) {
-	throw new Error("POC_SESSION_ID and DATABASE_URL are required");
+	throw new Error("TEST_SESSION_ID and DATABASE_URL are required");
 }
 
 const executor = new PgExecutor({ connectionString: databaseUrl });
@@ -40,8 +40,8 @@ try {
 		}
 	} else if (mode === "resume") {
 		const repo = new PostgresSessionRepo(executor);
-		const operationId = process.env.POC_OPERATION_ID;
-		if (operationId === undefined) throw new Error("POC_OPERATION_ID is required");
+		const operationId = process.env.TEST_OPERATION_ID;
+		if (operationId === undefined) throw new Error("TEST_OPERATION_ID is required");
 		const leases = new SessionLeaseManager(executor);
 		const driven = await drivePostgresOperation(
 			{ repo, leases, session: { id: sessionId, createdAt: 0, storageVersion: 1 }, models, model },

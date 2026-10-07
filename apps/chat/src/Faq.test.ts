@@ -16,7 +16,7 @@ describe("bottom FAQ", () => {
     const panel = screen.getByRole("region", { name: "Frequently asked questions" });
     expect(button.getAttribute("aria-expanded")).toBe("true");
     expect(panel.id).toBe(button.getAttribute("aria-controls"));
-    expect(screen.getByText(/POC_API_TOKEN/)).toBeTruthy();
+    expect(screen.getByText(/APP_API_TOKEN/)).toBeTruthy();
     expect(screen.getByText(/plain text in this tab/)).toBeTruthy();
     expect(screen.getByText(/worker and scheduler/)).toBeTruthy();
     expect(screen.getByText(/Session ID: test-session/)).toBeTruthy();

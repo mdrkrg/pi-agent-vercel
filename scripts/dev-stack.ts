@@ -42,8 +42,8 @@ export function fauxEnvironment(config: DevConfig, env: NodeJS.ProcessEnv): Node
 		...env,
 		DATABASE_URL: `postgresql://postgres:local-faux-only@127.0.0.1:${config.dbPort}/pi_chat_faux`,
 		PGSSLMODE: "disable",
-		POC_API_TOKEN: DEV_API_TOKEN, CRON_SECRET: "local-worker", POC_USER_ID: "local-user", POC_TENANT_ID: "local-tenant",
-		POC_FAUX_RESPONSE: config.response, PORT: String(config.servicePort), DEV_SERVICE_PORT: String(config.servicePort),
+		APP_API_TOKEN: DEV_API_TOKEN, CRON_SECRET: "local-worker", APP_USER_ID: "local-user", APP_TENANT_ID: "local-tenant",
+		AGENT_FAUX_RESPONSE: config.response, PORT: String(config.servicePort), DEV_SERVICE_PORT: String(config.servicePort),
 		AGENT_POLL_MS: "1000", AGENT_ADMISSION_MS: "10000", AGENT_PASS_MS: "45000", AGENT_INVOCATION_MS: "55000",
 	};
 }

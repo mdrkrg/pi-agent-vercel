@@ -34,7 +34,7 @@ describe("Svelte live chat", () => {
     expect(screen.getByRole("heading", { name: "Pi Chat" })).toBeTruthy();
     expect(screen.queryByText("DURABLE AGENT")).toBeNull();
     expect(screen.getByLabelText("Access token")).toBeTruthy();
-    expect(screen.queryByText(/POC_API_TOKEN/)).toBeNull();
+    expect(screen.queryByText(/APP_API_TOKEN/)).toBeNull();
     expect(screen.queryByText(/worker and scheduler/)).toBeNull();
     expect(screen.queryByText(/plain text/)).toBeNull();
     expect(screen.queryByRole("region", { name: "Frequently asked questions" })).toBeNull();

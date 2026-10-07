@@ -50,7 +50,7 @@ describe.skipIf(databaseUrl === undefined)("fresh-process tool effect recovery",
 
 	function spawnWorker(mode: "start" | "resume", sessionId: string, replay: string, effectFile: string, operationId?: string) {
 		return spawn(process.execPath, [tsxPath, workerPath, mode], {
-			env: { ...process.env, DATABASE_URL: databaseUrl, POC_SESSION_ID: sessionId, POC_REPLAY: replay, POC_EFFECT_FILE: effectFile, ...(operationId === undefined ? {} : { POC_OPERATION_ID: operationId }) },
+			env: { ...process.env, DATABASE_URL: databaseUrl, TEST_SESSION_ID: sessionId, TEST_REPLAY: replay, TEST_EFFECT_FILE: effectFile, ...(operationId === undefined ? {} : { TEST_OPERATION_ID: operationId }) },
 		});
 	}
 });

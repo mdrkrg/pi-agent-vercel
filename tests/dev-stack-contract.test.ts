@@ -74,10 +74,10 @@ describe("local FAUX runner configuration", () => {
 		}
 	});
 	it("overrides cloud connection, real-provider mode, auth, ports and execution budgets", () => {
-		const env = fauxEnvironment(config, { DATABASE_URL: "postgresql://never-connect.invalid/production", PORT: "9999", POC_API_TOKEN: "not-used", AGENT_PASS_MS: "999999" });
+		const env = fauxEnvironment(config, { DATABASE_URL: "postgresql://never-connect.invalid/production", PORT: "9999", APP_API_TOKEN: "not-used", APP_USER_ID: "not-used", APP_TENANT_ID: "not-used", AGENT_FAUX_RESPONSE: "not-used", AGENT_PASS_MS: "999999" });
 		expect(env.DATABASE_URL).toBe(`postgresql://postgres:local-faux-only@127.0.0.1:${config.dbPort}/pi_chat_faux`);
-		expect(env).toMatchObject({ POC_FAUX_RESPONSE: "This is a fixed FAUX response.", POC_API_TOKEN: "local-api", CRON_SECRET: "local-worker", AGENT_PASS_MS: "45000", AGENT_INVOCATION_MS: "55000", PGSSLMODE: "disable" });
-		expect(env.POC_API_TOKEN).toBe(DEV_API_TOKEN);
+		expect(env).toMatchObject({ AGENT_FAUX_RESPONSE: "This is a fixed FAUX response.", APP_API_TOKEN: "local-api", APP_USER_ID: "local-user", APP_TENANT_ID: "local-tenant", CRON_SECRET: "local-worker", AGENT_PASS_MS: "45000", AGENT_INVOCATION_MS: "55000", PGSSLMODE: "disable" });
+		expect(env.APP_API_TOKEN).toBe(DEV_API_TOKEN);
 		expect(env.DEV_SERVICE_PORT).toBe(String(config.servicePort));
 		expect(env.PORT).toBe(String(config.servicePort));
 	});

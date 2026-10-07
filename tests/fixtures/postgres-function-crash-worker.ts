@@ -5,8 +5,8 @@ import { createAssistantMessageEventStream, createModels, fauxAssistantMessage, 
 import { FunctionService, type ServiceToolContext } from "../../packages/agent-runtime/src/index.ts";
 import { PgExecutor } from "../../packages/pi-postgres/src/index.ts";
 
-const mode = process.argv[2]; const phase = process.env.POC_CRASH_PHASE;
-const databaseUrl = process.env.DATABASE_URL; const effectFile = process.env.POC_EFFECT_FILE;
+const mode = process.argv[2]; const phase = process.env.TEST_CRASH_PHASE;
+const databaseUrl = process.env.DATABASE_URL; const effectFile = process.env.TEST_EFFECT_FILE;
 if (databaseUrl === undefined || effectFile === undefined) throw new Error("Crash worker configuration missing");
 async function crashPoint(): Promise<never> {
 	await new Promise<void>((resolve, reject) => process.send!({ ready: true }, (error) => error == null ? resolve() : reject(error)));
@@ -30,7 +30,7 @@ faux.setResponses([async () => {
 }, fauxAssistantMessage("recovered answer")]);
 const tool: AgentHarnessTool<ServiceToolContext> = {
 	name: "effect", label: "Effect", description: "Record a crash boundary", parameters: { type: "object", properties: {} },
-	replay: process.env.POC_REPLAY === "safe" ? "safe" : "never",
+	replay: process.env.TEST_REPLAY === "safe" ? "safe" : "never",
 	execute: async (_id, _args, _update, context, invocation) => {
 		appendFileSync(effectFile, `${JSON.stringify({ mode, invocationId: invocation.invocationId, principal: context.principal, operationId: context.operationId, sessionId: context.sessionId })}\n`);
 		if (mode === "start") return crashPoint();
@@ -41,7 +41,7 @@ const service = new FunctionService({ executor: new PgExecutor({ connectionStrin
 try {
 	await service.ready();
 	if (mode === "start") {
-		const sessionId = process.env.POC_SESSION_ID;
+		const sessionId = process.env.TEST_SESSION_ID;
 		if (sessionId === undefined) throw new Error("Start requires a session");
 		if (phase === "before-accept") {
 			const create = service.submissions.create.bind(service.submissions);

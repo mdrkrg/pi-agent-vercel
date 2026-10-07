@@ -35,8 +35,8 @@ describe.skipIf(databaseUrl === undefined)("fresh-process Agent recovery", () =>
 				env: {
 					...process.env,
 					DATABASE_URL: databaseUrl,
-					POC_SESSION_ID: sessionId,
-					...(operationId === undefined ? {} : { POC_OPERATION_ID: operationId }),
+					TEST_SESSION_ID: sessionId,
+					...(operationId === undefined ? {} : { TEST_OPERATION_ID: operationId }),
 				},
 			});
 			let stdout = "";

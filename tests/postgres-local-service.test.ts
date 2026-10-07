@@ -7,7 +7,7 @@ const databaseUrl = process.env.DATABASE_URL;
 describe.skipIf(databaseUrl === undefined)("independent local Function wake source", () => {
 	it("finishes after the HTTP client disconnects without another ingress or worker request", async () => {
 		const path = fileURLToPath(new URL("../scripts/local-service.ts", import.meta.url));
-		const child = spawn(process.execPath, ["--import", "tsx", path], { env: { ...process.env, DATABASE_URL: databaseUrl, PORT: "0", AGENT_POLL_MS: "100", POC_API_TOKEN: "local-api", CRON_SECRET: "local-cron", POC_USER_ID: "local-user", POC_TENANT_ID: "local-tenant", POC_FAUX_RESPONSE: "independent final" }, stdio: ["ignore", "pipe", "pipe"] });
+		const child = spawn(process.execPath, ["--import", "tsx", path], { env: { ...process.env, DATABASE_URL: databaseUrl, PORT: "0", AGENT_POLL_MS: "100", APP_API_TOKEN: "local-api", CRON_SECRET: "local-cron", APP_USER_ID: "local-user", APP_TENANT_ID: "local-tenant", AGENT_FAUX_RESPONSE: "independent final" }, stdio: ["ignore", "pipe", "pipe"] });
 		let stderr = ""; child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
 		const exited = new Promise<number | null>((resolve) => child.once("close", resolve));
 		const executor = new PgExecutor({ connectionString: databaseUrl }); let sessionId: string | undefined;

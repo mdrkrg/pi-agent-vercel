@@ -7,7 +7,7 @@
 	let root: HTMLDivElement;
 	const questions = [
 		["Why am I waiting for a reply?", "Work starts on the scheduler's next pass; minute-based scheduling can add nearly a minute. Replies appear once complete, and polling faster does not speed execution up. If no reply arrives, check that the worker and scheduler are running."],
-		["What access token should I use?", "Enter the server's POC_API_TOKEN. It is not saved in browser storage, so enter it again after refreshing."],
+		["What access token should I use?", "Enter the server's APP_API_TOKEN. It is not saved in browser storage, so enter it again after refreshing."],
 		["What is stored locally?", "Drafts, sent messages and retry information are stored as plain text in this tab. Tokens and replies are not saved; replies are fetched again from the server."],
 		["Does closing the page stop the reply?", "No. Submitted work is not cancelled. After closing the tab, you may not be able to restore its local conversation history."],
 		["Why use “Retry submission” after a failed send?", "Your message may have arrived without a confirmation. Retrying reuses the original message and request identity to avoid duplicates; do not send another copy."],

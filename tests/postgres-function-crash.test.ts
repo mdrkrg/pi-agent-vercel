@@ -12,7 +12,7 @@ const fixture = fileURLToPath(new URL("./fixtures/postgres-function-crash-worker
 const principal = { userId: "crash-user", tenantId: "crash-tenant" };
 type Worker = { child: ChildProcess; ready: Promise<void>; exited: Promise<{ code: number | null; signal: NodeJS.Signals | null; stderr: string }> };
 function worker(mode: "start" | "resume", phase: string, effectFile: string, sessionId?: string, replay?: string): Worker {
-	const child = spawn(process.execPath, ["--import", "tsx", fixture, mode], { env: { ...process.env, DATABASE_URL: databaseUrl, POC_EFFECT_FILE: effectFile, POC_CRASH_PHASE: phase, POC_SESSION_ID: sessionId, POC_REPLAY: replay }, stdio: ["ignore", "pipe", "pipe", "ipc"] });
+	const child = spawn(process.execPath, ["--import", "tsx", fixture, mode], { env: { ...process.env, DATABASE_URL: databaseUrl, TEST_EFFECT_FILE: effectFile, TEST_CRASH_PHASE: phase, TEST_SESSION_ID: sessionId, TEST_REPLAY: replay }, stdio: ["ignore", "pipe", "pipe", "ipc"] });
 	let stderr = ""; child.stderr!.on("data", (chunk: Buffer) => { stderr += chunk.toString(); }); child.stdout!.resume();
 	const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null; stderr: string }>((resolve) => child.once("close", (code, signal) => resolve({ code, signal, stderr })));
 	const ready = new Promise<void>((resolve, reject) => {

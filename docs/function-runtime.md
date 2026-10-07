@@ -4,7 +4,9 @@ HTTP contract and deployment settings for the single-principal Function PoC. See
 
 ## Authentication and routes
 
-API requests use `Authorization: Bearer <POC_API_TOKEN>`; worker requests use a distinct `CRON_SECRET`. Ownership checks require both **userId AND tenantId** to match the configured principal. Identity headers are ignored; unknown and unauthorized resources return the same `404`.
+API requests use `Authorization: Bearer <APP_API_TOKEN>`; worker requests use a distinct `CRON_SECRET`. Ownership checks require both **userId AND tenantId** to match the configured principal. Identity headers are ignored; unknown and unauthorized resources return the same `404`.
+
+When upgrading, rename environment settings to match [.env.example](../.env.example). Keep existing values. Old names are not supported.
 
 | Route | Authorization | Response |
 | --- | --- | --- |
@@ -41,7 +43,7 @@ Fork lanes start idle; operation/pending/result/usage and submission/job state a
 
 `AGENT_PROVIDER` and `AGENT_MODEL_ID` select one model from the installed Pi built-ins. Pi resolves standard provider credential variables, such as `DEEPSEEK_API_KEY`. Unknown provider/model fails configuration; automatic failover is disabled.
 
-`POC_FAUX_RESPONSE` selects an isolated deterministic provider; omit it for real execution. The environment entry configures no tools; programmatic `FunctionService` options can supply them.
+`AGENT_FAUX_RESPONSE` selects an isolated deterministic provider; omit it for real execution. The environment entry configures no tools; programmatic `FunctionService` options can supply them.
 
 Credentials stay server-side. This entry does not load coding-agent `auth.json`, `models.json`, or extensions, or configure persistent OAuth refresh. Provider bundle size and cold-start behavior need deployment measurement.
 

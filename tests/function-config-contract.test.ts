@@ -10,8 +10,8 @@ vi.mock("../packages/pi-postgres/src/index.ts", () => ({ PgExecutor: vi.fn(funct
 
 const base: NodeJS.ProcessEnv = {
 	DATABASE_URL: "postgresql://unused/isolated-test",
-	POC_API_TOKEN: "test-api", CRON_SECRET: "test-worker",
-	POC_USER_ID: "test-user", POC_TENANT_ID: "test-tenant",
+	APP_API_TOKEN: "test-api", CRON_SECRET: "test-worker",
+	APP_USER_ID: "test-user", APP_TENANT_ID: "test-tenant",
 	AGENT_PROVIDER: "deepseek", AGENT_MODEL_ID: "deepseek-flash",
 };
 function configure(overrides: NodeJS.ProcessEnv = {}) {
@@ -60,7 +60,7 @@ describe("Function environment configuration (no database or provider calls)", (
 	});
 
 	it("keeps faux mode isolated and usable without provider selection or keys", async () => {
-		const { models, model } = configure({ POC_FAUX_RESPONSE: "deterministic response", AGENT_PROVIDER: undefined, AGENT_MODEL_ID: undefined });
+		const { models, model } = configure({ AGENT_FAUX_RESPONSE: "deterministic response", AGENT_PROVIDER: undefined, AGENT_MODEL_ID: undefined });
 		expect(models.getProviders()).toHaveLength(1);
 		expect(model.provider).not.toBe("deepseek");
 		expect(models.getProvider("deepseek")).toBeUndefined();

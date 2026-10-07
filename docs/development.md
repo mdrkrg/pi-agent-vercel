@@ -50,7 +50,7 @@ pnpm dev:service
 pnpm dev:ui
 ```
 
-The backend does not automatically load `.env`. With `POC_FAUX_RESPONSE` set it uses the deterministic provider, omit it and configure provider/model credentials for authorized real execution. See the [Function reference](function-runtime.md#provider-configuration).
+The backend does not automatically load `.env`. With `AGENT_FAUX_RESPONSE` set it uses the deterministic provider, omit it and configure provider/model credentials for authorized real execution. See the [Function reference](function-runtime.md#provider-configuration).
 
 The backend and UI proxy default to port 3000. If changing the backend's `PORT`, set the UI's `DEV_SERVICE_PORT` to match, for example `DEV_SERVICE_PORT=3080 pnpm dev:ui`.
 
@@ -58,7 +58,7 @@ The backend and UI proxy default to port 3000. If changing the backend's `PORT`,
 
 The UI is intentionally a small, sequential chat over the existing durable backend, not another agent runtime or a server-history browser. The backend progresses independently, browser polling only observes results.
 
-For manual development, enter your configured `POC_API_TOKEN`. After refreshing, re-enter the token. If a submission needs recovery, use **Retry submission** rather than sending another copy.
+For manual development, enter your configured `APP_API_TOKEN`. After refreshing, re-enter the token. If a submission needs recovery, use **Retry submission** rather than sending another copy.
 
 This is a trusted-operator PoC, not a public login system. Local prompts are plaintext. Avoid shared devices and keep provider/database credentials server-side.
 
