@@ -54,6 +54,21 @@ The backend does not automatically load `.env`. With `AGENT_FAUX_RESPONSE` set i
 
 The backend and UI proxy default to port 3000. If changing the backend's `PORT`, set the UI's `DEV_SERVICE_PORT` to match, for example `DEV_SERVICE_PORT=3080 pnpm dev:ui`.
 
+## Deployed worker
+
+With Vercel CLI installed and logged in, run a separate terminal process:
+
+```sh
+pnpm worker:external --url https://YOUR-DEPLOYMENT.vercel.app
+```
+
+- Reads `CRON_SECRET` from `.env` or the shell, never the API token. Use `--env-file <path>` to select a different credential file.
+- Runs continuously, waiting **60s after each request** without overlapping requests. Stop with **Ctrl+C**. A failed request exits with an error.
+- Preserves Preview Protection through `vercel curl`. Browser polling still only observes results.
+- This is a foreground development helper, not a managed cloud scheduler. Idle requests keep Neon awake and consume quota, so stop it when done.
+
+Set `EXTERNAL_WORKER_URL` in `.env` or the shell to use just `pnpm worker:external`. See `pnpm worker:external --help` for options.
+
 ## Chat UI
 
 The UI is intentionally a small, sequential chat over the existing durable backend, not another agent runtime or a server-history browser. The backend progresses independently, browser polling only observes results.
