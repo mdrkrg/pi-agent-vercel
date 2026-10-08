@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/harness/context";
-import { createModels, fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { createModels, fauxAssistantMessage, fauxProvider, type Api, type Model } from "@earendil-works/pi-ai";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { acceptPrompt, openAgentHarness, PostgresRecoveryCoordinator } from "../packages/agent-runtime/src/index.ts";
 import { deletePiPostgresSession, DriveJobRepo, ensurePiPostgresSchema, PgExecutor, PostgresSessionRepo, SessionLeaseManager } from "../packages/pi-postgres/src/index.ts";
 
@@ -12,16 +12,20 @@ describe.skipIf(databaseUrl === undefined)("Postgres recovery coordinator", () =
 	const sessions: string[] = [];
 	beforeAll(async () => ensurePiPostgresSchema(executor));
 	afterEach(async () => {
+		vi.restoreAllMocks();
 		for (const sessionId of sessions.splice(0)) await deletePiPostgresSession(executor, sessionId);
 	});
 	afterAll(async () => executor.close());
 
-	async function acceptedOperation() {
-		const models = createModels();
-		const faux = fauxProvider();
-		models.setProvider(faux.provider);
-		faux.setResponses([fauxAssistantMessage("recovered")]);
-		const model = faux.getModel();
+	async function acceptedOperation(catalog?: { models: ReturnType<typeof createModels>; model: Model<Api> }) {
+		if (catalog === undefined) {
+			const models = createModels();
+			const faux = fauxProvider();
+			models.setProvider(faux.provider);
+			faux.setResponses([fauxAssistantMessage("recovered")]);
+			catalog = { models, model: faux.getModel() };
+		}
+		const { models, model } = catalog;
 		const sessionId = `coordinator-${randomUUID()}`;
 		sessions.push(sessionId);
 		const repo = new PostgresSessionRepo(executor);
@@ -54,6 +58,52 @@ describe.skipIf(databaseUrl === undefined)("Postgres recovery coordinator", () =
 		} finally {
 			await repo.close(BACKGROUND_CONTEXT);
 		}
+	});
+
+	it("opens only native open-operation candidates and skips idle and settled sessions", async () => {
+		const accepted = await acceptedOperation();
+		const repo = new PostgresSessionRepo(executor);
+		const jobs = new DriveJobRepo(executor);
+		const worker = new PostgresRecoveryCoordinator({ ...accepted, repo, jobs, workerId: "candidate-worker", context: BACKGROUND_CONTEXT });
+		try {
+			const idle = await repo.create({ id: `coordinator-idle-${randomUUID()}` }, BACKGROUND_CONTEXT);
+			sessions.push(idle.metadata.id);
+			await idle.setValue({ namespace: "application", key: "metadata", kind: "value" }, { operationId: "not-native-operation-metadata" }, BACKGROUND_CONTEXT);
+			await idle.close(BACKGROUND_CONTEXT);
+			expect(await repo.listWithOpenOperations(BACKGROUND_CONTEXT)).toEqual([accepted.metadata]);
+			const open = vi.spyOn(repo, "openWithLease");
+			const acquire = vi.spyOn(accepted.leases, "acquire");
+			const [job] = await worker.discover();
+			expect(job?.operationId).toBe(accepted.operationId);
+			expect(open).toHaveBeenCalledTimes(1);
+			expect(acquire).toHaveBeenCalledTimes(1);
+			expect(await worker.run()).toEqual([expect.objectContaining({ status: "completed" })]);
+			expect(await repo.listWithOpenOperations(BACKGROUND_CONTEXT)).toEqual([]);
+			open.mockClear(); acquire.mockClear();
+			expect(await worker.discover()).toEqual([]);
+			expect(open).not.toHaveBeenCalled();
+			expect(acquire).not.toHaveBeenCalled();
+			// A candidate snapshot can become stale before ownership is acquired.
+			vi.spyOn(repo, "listWithOpenOperations").mockResolvedValue([accepted.metadata]);
+			expect(await worker.discover()).toEqual([]);
+			expect(open).toHaveBeenCalledTimes(1);
+			expect(await jobs.get(job!.id)).toMatchObject({ status: "completed" });
+		} finally { await repo.close(BACKGROUND_CONTEXT); }
+	});
+
+	it("repairs a missing queue projection even while another operation has a due job", async () => {
+		const queued = await acceptedOperation();
+		const missing = await acceptedOperation(queued);
+		const repo = new PostgresSessionRepo(executor);
+		const jobs = new DriveJobRepo(executor);
+		const worker = new PostgresRecoveryCoordinator({ ...queued, repo, jobs, workerId: "repair-worker", context: BACKGROUND_CONTEXT });
+		try {
+			const existing = await jobs.enqueue({ sessionId: queued.metadata.id, lane: "main", operationId: queued.operationId });
+			const discovered = await worker.discover();
+			expect(discovered.map((job) => job.operationId).sort()).toEqual([queued.operationId, missing.operationId].sort());
+			expect(discovered.find((job) => job.operationId === queued.operationId)?.id).toBe(existing.id);
+			expect(await jobs.listRecoverable()).toHaveLength(2);
+		} finally { await repo.close(BACKGROUND_CONTEXT); }
 	});
 
 	it("keeps open work recoverable after a transient worker exception", async () => {

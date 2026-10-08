@@ -51,7 +51,7 @@ export class PostgresRecoveryCoordinator<TContext extends object | undefined = o
 
 	async discover(sessionIds?: readonly string[]): Promise<DriveJob[]> {
 		const sessions = await traceStage("worker.discover.list", {}, async (span) => {
-			const listed = sessionIds === undefined ? await this.options.repo.list(undefined, this.options.context) : await Promise.all(sessionIds.map((id) => this.metadata(id)));
+			const listed = sessionIds === undefined ? await this.options.repo.listWithOpenOperations(this.options.context) : await Promise.all(sessionIds.map((id) => this.metadata(id)));
 			annotateSpan(span, { "agent.discovery.session.count": listed.filter((item) => item !== undefined).length });
 			return listed;
 		});

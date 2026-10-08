@@ -164,6 +164,25 @@ export class PostgresSessionRepo implements SessionRepo {
 		return result.rows.map(metadataFromRow);
 	}
 
+	/** Discovery candidates only. Pi rechecks each operation under writer ownership. */
+	async listWithOpenOperations(context: Context): Promise<SessionMetadata[]> {
+		this.assertOpen();
+		context.abortSignal?.throwIfAborted();
+		// Native settlement atomically removes operation metadata. Use the published
+		// address namespace, not queue status or a second operation-state predicate.
+		const result = await this.executor.query<SessionRow>(
+			`SELECT s.id, s.created_at, s.storage_version, s.parent_session_id
+			 FROM pi_poc_sessions s
+			 WHERE EXISTS (
+				SELECT 1 FROM pi_poc_storage_values v
+				WHERE v.session_id=s.id AND v.namespace=$1
+			 ) ORDER BY s.id ASC`,
+			[operationMeta("discovery").namespace],
+		);
+		context.abortSignal?.throwIfAborted();
+		return result.rows.map(metadataFromRow);
+	}
+
 	async authorizedMetadata(id: string, userId: string, tenantId: string): Promise<SessionMetadata | undefined> {
 		this.assertOpen();
 		const rows = await this.executor.query<SessionRow>("SELECT s.id, s.created_at, s.storage_version, s.parent_session_id FROM pi_poc_sessions s JOIN agent_session_access a ON a.session_id=s.id WHERE s.id=$1 AND a.user_id=$2 AND a.tenant_id=$3", [id, userId, tenantId]);

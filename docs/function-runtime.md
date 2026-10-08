@@ -93,6 +93,6 @@ For foreground scheduling during development, use the [external worker command](
 
 For validation, use an isolated database and an authorized provider budget. Preserve Preview Deployment Protection; platform access and application Bearer authentication are separate requirements. Use a bounded independent scheduler, not smoke-client ticks or local `worker:once`, to prove deployed execution. Stop it afterward: minute-by-minute queries prevent Neon idle suspension and consume quota.
 
-The current worker drives one job per tick, scans up to 100 admission/projection rows, and discovers sessions by a full scan. Schema bootstrap runs at request time. These are PoC limits, not throughput or recovery SLOs; see [known gaps](known-gaps.md).
+The current worker drives one job per tick and scans up to 100 admission/projection rows. Schema bootstrap runs at request time. These are PoC limits, not throughput or recovery SLOs. See [known gaps](known-gaps.md).
 
 Platform references: [cron authentication/retries](https://vercel.com/docs/cron-jobs/manage-cron-jobs), [cron plan limits](https://vercel.com/docs/cron-jobs/usage-and-pricing), [Function duration](https://vercel.com/docs/functions/configuring-functions/duration).

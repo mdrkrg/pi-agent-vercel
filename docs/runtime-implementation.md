@@ -28,6 +28,7 @@ Start reading the code here:
 ## Worker and fencing
 
 - **Each tick:** recover admissions → discover open operations → run one due job → reconcile submissions.
+- **Discovery candidates:** query native open-operation metadata in one SQL snapshot. Pi rechecks candidates under a fenced lease.
 - **Authority comes from storage:** rebuild principal/tool context from the authorized submission, not the wake-up payload. Result polling never runs the worker.
 - **Writer lifecycle:** acquire lease → open harness → drive → close harness → release lease. Await closure and in-flight renewal before release. Attempt release even if cleanup fails.
 - **Fence every write:** lock the lease row and validate holder, epoch and expiry in the mutation transaction. Release expires the row rather than resetting its epoch.

@@ -20,7 +20,7 @@ Atomic copy and cleanup mechanics are described in [implementation](runtime-impl
 
 ## Recovery and scaling
 
-- Full-session discovery, bounded admission/projection scans, and one job per tick do not establish queue fairness or throughput.
+- Unbounded open-session discovery, bounded admission/projection scans, and one job per tick do not establish queue fairness or throughput.
 - Request-time schema bootstrap needs controlled migrations before shared-deployment/schema rollout complexity grows.
 - Per-invocation connection pools do not enforce a global database connection limit. Measure latency, contention, claim expiry, and backlog before selecting production budgets or SLOs.
 - A small cloud smoke does not qualify second-principal authorization, deliberate deadlines, deployment-switch recovery, hard termination/takeover, tool recovery, or load behavior. Each requires separate evidence.
