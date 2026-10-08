@@ -48,11 +48,12 @@ it("flushes a short-lived CLI batch to a local collector before exit", async () 
 	expect((await collect("tests/fixtures/telemetry-process.ts")).map((span) => span.name)).toContain("worker.tick");
 }, 20_000);
 
-it.skipIf(process.env.DATABASE_URL === undefined)("worker:once flushes database preparation after cleanup", async () => {
+it.skipIf(process.env.DATABASE_URL === undefined)("worker:once flushes its real tick after database cleanup", async () => {
 	const exported = await collect("scripts/function-worker.ts", {
 		DATABASE_URL: process.env.DATABASE_URL!, APP_API_TOKEN: "private-api", CRON_SECRET: "private-worker",
 		APP_USER_ID: "private-user", APP_TENANT_ID: "private-tenant", AGENT_FAUX_RESPONSE: "private-answer",
 	});
-	expect(exported.map((span) => span.name)).toContain("database.ready");
+	expect(exported.map((span) => span.name)).toEqual(expect.arrayContaining(["database.ready", "worker.tick"]));
+	expect(exported.find((span) => span.name === "worker.tick")!.attributes).toContainEqual({ key: "agent.worker.phase", value: { stringValue: "complete" } });
 	expect(JSON.stringify(exported)).not.toContain("private-");
 }, 20_000);

@@ -4,9 +4,10 @@ import { context, INVALID_SPAN_CONTEXT, isSpanContextValid, propagation, ROOT_CO
 /** Stable names only: prompts, URLs, SQL, and error messages must never name spans. */
 type Stage = "function.request" | "function.configure" | "function.handle" | "function.close"
 	| "database.ready" | "submission.admit" | "worker.tick" | "worker.admission.recover" | "worker.discover"
-	| "worker.discover.session" | "worker.run" | "worker.reconcile" | "job.claim"
+	| "worker.discover.list" | "worker.discover.session" | "worker.discover.session.open"
+	| "worker.discover.harness.create" | "worker.discover.publish" | "worker.run" | "worker.reconcile" | "job.claim"
 	| "job.pass" | "job.metadata" | "job.authorize" | "job.session.open" | "job.harness.create"
-	| "job.result.read" | "job.drive" | "job.settle" | "ownership.acquire"
+	| "job.result.read" | "job.drive" | "job.settle" | "job.release" | "job.reschedule" | "ownership.acquire"
 	| "ownership.close" | "ownership.renew" | "ownership.renewal.wait" | "ownership.release";
 
 /** Telemetry annotations must not replace an execution/cleanup error. */

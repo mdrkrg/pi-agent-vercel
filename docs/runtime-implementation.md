@@ -37,6 +37,13 @@ Start reading the code here:
 - **Failure diagnostics:** unexpected HTTP failures log only stage, fixed error category/type and elapsed time. Raw exceptions, SQL, credentials and conversation data are omitted.
 - Hard termination can bypass cleanup. Recovery waits for outstanding claims to expire, then delegates effect replay and deferred polling to Pi.
 
+## Tracing mechanics
+
+- **Request parent:** [tracing](../packages/agent-runtime/src/tracing.ts) accepts W3C context, otherwise uses the active host span or Vercel SDK root. Baggage and identity headers are not imported or used for authorization.
+- **Privacy and failure isolation:** [bootstrap](../packages/agent-runtime/src/telemetry-bootstrap.ts) installs an attribute allowlist before automatic SDK exporters, removing SDK-enriched request headers, events and status messages. Span/context setup failures fall back to execution without retrying the callback; telemetry never replaces execution/cleanup errors or durable authority.
+- **Measured phases:** configuration/database preparation/handling/cleanup; worker admission recovery/discovery/job passes/reconciliation; ownership acquisition/renewal/closure/release. Durable IDs correlate admissions and passes. Ticks retain completed-stage counts and failure phase; deadline signaling precedes annotations. Job lateness uses current `availableAt`, age uses `createdAt`, not historical claim timing.
+- **Limits:** discovery emits spans per visited session. Sampling and span volume require measurement; individual SQL and provider first-token latency are not measured. There is no trace outbox. Collection settings and local flush behavior are in the [Function reference](function-runtime.md#tracing).
+
 ## Result reads and projections
 
 - **Authorize first:** check persisted user/tenant ownership and read native state/result in one SQL snapshot.
@@ -69,5 +76,6 @@ Start reading the code here:
 - Admission/ownership/results: [admission](../tests/postgres-admission-contract.test.ts), [drive ownership](../tests/postgres-drive-ownership.test.ts), and [results](../tests/postgres-submission-result.test.ts).
 - Fresh-process behavior: [SIGKILL boundaries](../tests/postgres-function-crash.test.ts), [tool recovery](../tests/postgres-tool-recovery.test.ts), and [independent local service](../tests/postgres-local-service.test.ts).
 - Forks: [HTTP contract](../tests/function-fork-http-contract.test.ts), [atomic ownership](../tests/postgres-owner-fork.test.ts), and [database service](../tests/postgres-function-service.test.ts).
+- Tracing: [async context](../tests/tracing-contract.test.ts), [real SDK/privacy/export](../tests/telemetry-sdk-contract.test.ts), [cleanup failure isolation](../tests/ownership-tracing-contract.test.ts), [worker deadlines](../tests/worker-tracing-contract.test.ts), and [database-backed spans](../tests/postgres-function-tracing.test.ts).
 
 Local recovery tests are not Vercel hard-termination qualification. Native replay guarantees belong to the [durable contract](operation-aware-contract.md).

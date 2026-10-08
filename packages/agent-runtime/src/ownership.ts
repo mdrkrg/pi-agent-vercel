@@ -2,6 +2,7 @@ import { withAbortSignal, withoutAbortSignal, type Context } from "@earendil-wor
 import type { Session } from "@earendil-works/pi-agent-core/harness/session";
 import { SessionLeaseLostError, SessionLeaseManager, type SessionLease, type SessionLeaseOptions } from "../../pi-postgres/src/index.ts";
 import { DEFAULT_PASS_MS } from "./execution-budgets.ts";
+import { traceStage } from "./tracing.ts";
 
 export class DriveDeadlineExceeded extends Error {
 	readonly name = "DriveDeadlineExceeded";
@@ -27,7 +28,7 @@ export async function withSessionOwnership<T>(
 	const budgetMs = options.maxDurationMs ?? DEFAULT_PASS_MS;
 	if (!Number.isSafeInteger(budgetMs) || budgetMs <= 0) throw new Error("Execution budget must be a positive safe integer");
 	context.abortSignal?.throwIfAborted();
-	const lease = await options.leases.acquire(options.sessionId, options.lease);
+	const lease = await traceStage("ownership.acquire", {}, () => options.leases.acquire(options.sessionId, options.lease));
 	const controller = new AbortController();
 	const ownedContext = withAbortSignal(controller.signal, context);
 	const cleanupContext = withoutAbortSignal(context);
@@ -39,7 +40,7 @@ export async function withSessionOwnership<T>(
 	let expiryTimer: ReturnType<typeof setTimeout> | undefined;
 	let renewing: Promise<void> | undefined;
 	const close = () => {
-		closing ??= harness !== undefined ? harness.close(cleanupContext) : session?.close(cleanupContext) ?? Promise.resolve();
+		closing ??= traceStage("ownership.close", {}, () => harness !== undefined ? harness.close(cleanupContext) : session?.close(cleanupContext) ?? Promise.resolve());
 		void closing.catch(() => undefined);
 	};
 	const stop = (reason: unknown) => {
@@ -61,8 +62,11 @@ export async function withSessionOwnership<T>(
 			if (!active || controller.signal.aborted) return;
 			renewing = (async () => {
 				try {
-					const renewed = await options.leases.renew(lease, ttlMs);
-					if (options.renewAdditional !== undefined) await options.renewAdditional();
+					const renewed = await traceStage("ownership.renew", {}, async () => {
+						const value = await options.leases.renew(lease, ttlMs);
+						if (options.renewAdditional !== undefined) await options.renewAdditional();
+						return value;
+					});
 					if (active && !controller.signal.aborted) { armExpiry(renewed.expiresAt); scheduleRenewal(); }
 				} catch (error) { stop(error); }
 			})();
@@ -88,8 +92,8 @@ export async function withSessionOwnership<T>(
 		close();
 		try { await closing; }
 		finally {
-			try { await renewing; }
-			finally { await options.leases.release(lease); }
+			try { await traceStage("ownership.renewal.wait", {}, async () => { await renewing; }); }
+			finally { await traceStage("ownership.release", {}, () => options.leases.release(lease)); }
 		}
 	}
 }
