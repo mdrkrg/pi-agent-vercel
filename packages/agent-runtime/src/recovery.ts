@@ -3,6 +3,7 @@ import type { Context } from "@earendil-works/pi-agent-core/harness/context";
 import type { SessionMetadata } from "@earendil-works/pi-agent-core/harness/session";
 import { DriveJobRepo, PostgresSessionRepo, SessionLeaseBusyError, SessionLeaseManager, type DriveJob, type SessionLeaseOptions } from "../../pi-postgres/src/index.ts";
 import { withSessionOwnership } from "./ownership.ts";
+import { annotateSpan, traceStage } from "./tracing.ts";
 
 export type RecoveryCoordinatorOptions<TContext extends object | undefined> = Omit<AgentHarnessOptions<TContext>, "session"> & {
 	readonly repo: PostgresSessionRepo;
@@ -41,7 +42,7 @@ export class PostgresRecoveryCoordinator<TContext extends object | undefined = o
 		// Claim only when ready to execute: claims cannot expire behind a slow pass.
 		for (let index = 0; index < limit; index++) {
 			this.options.context.abortSignal?.throwIfAborted();
-			const [job] = await this.options.jobs.claimDue({ ownerId: this.options.workerId, limit: 1, ttlMs: this.options.lease?.ttlMs ?? 90_000 });
+			const [job] = await traceStage("job.claim", {}, () => this.options.jobs.claimDue({ ownerId: this.options.workerId, limit: 1, ttlMs: this.options.lease?.ttlMs ?? 90_000 }));
 			if (job === undefined) break;
 			results.push(await this.driveClaim(job));
 		}
@@ -54,7 +55,7 @@ export class PostgresRecoveryCoordinator<TContext extends object | undefined = o
 		for (const metadata of sessions) {
 			if (metadata === undefined) continue;
 			try {
-				await withSessionOwnership(this.ownershipOptions(metadata.id), this.options.context, async (owned) => {
+				await traceStage("worker.discover.session", {}, () => withSessionOwnership(this.ownershipOptions(metadata.id), this.options.context, async (owned) => {
 					const session = await this.options.repo.openWithLease(metadata, owned.lease, owned.context);
 					owned.registerSession(session);
 					const opened = await AgentHarness.create({ ...this.baseHarnessOptions(), session }, owned.context);
@@ -63,7 +64,7 @@ export class PostgresRecoveryCoordinator<TContext extends object | undefined = o
 						owned.assertActive();
 						discovered.push(await this.options.jobs.enqueue({ sessionId: metadata.id, lane: operation.lane, operationId: operation.operationId }));
 					}
-				});
+				}));
 			} catch (error) { if (!(error instanceof SessionLeaseBusyError)) throw error; }
 		}
 		return discovered;
@@ -82,30 +83,48 @@ export class PostgresRecoveryCoordinator<TContext extends object | undefined = o
 	}
 
 	private async driveClaim(job: DriveJob): Promise<RecoveryPassResult> {
+		return traceStage("job.pass", {
+			"agent.job.id": job.id, "agent.operation.id": job.operationId,
+			...(job.submissionId === null ? {} : { "agent.submission.id": job.submissionId }),
+			"agent.job.attempt": job.attemptCount,
+			// Lateness since eligibility, not a reconstructed first-claim timestamp.
+			"agent.job.eligible_delay_ms": Math.max(0, this.now() - job.availableAt),
+			"agent.job.age_ms": Math.max(0, this.now() - job.createdAt),
+		}, async (span) => {
+			const result = await this.driveOwnedClaim(job);
+			annotateSpan(span, { "agent.job.status": result.status });
+			return result;
+		});
+	}
+
+	private async driveOwnedClaim(job: DriveJob): Promise<RecoveryPassResult> {
 		let open: readonly OpenOperation[] = [];
 		const result = (status: RecoveryPassResult["status"]): RecoveryPassResult => ({ jobId: job.id, operationId: job.operationId, status, open });
 		try {
-			const metadata = await this.metadata(job.sessionId);
+			const metadata = await traceStage("job.metadata", {}, () => this.metadata(job.sessionId));
 			if (metadata === undefined) { await this.options.jobs.fail(job, this.options.workerId, "Unknown session: " + job.sessionId); return result("failed"); }
 			return await withSessionOwnership({
 				...this.ownershipOptions(job.sessionId),
 				renewAdditional: () => this.options.jobs.renew(job, this.options.workerId, this.options.lease?.ttlMs ?? 90_000),
 			}, this.options.context, async (owned) => {
-				const session = await this.options.repo.openWithLease(metadata, owned.lease, owned.context);
+				const session = await traceStage("job.session.open", {}, () => this.options.repo.openWithLease(metadata, owned.lease, owned.context));
 				owned.registerSession(session);
-				const options = this.options.harnessOptionsForJob === undefined ? this.baseHarnessOptions() : await this.options.harnessOptionsForJob(job, owned.context);
+				const options = await traceStage("job.authorize", {}, async () => this.options.harnessOptionsForJob === undefined ? this.baseHarnessOptions() : this.options.harnessOptionsForJob(job, owned.context));
 				owned.assertActive();
-				const opened = await AgentHarness.create({ ...options, session }, owned.context);
+				const opened = await traceStage("job.harness.create", {}, () => AgentHarness.create({ ...options, session }, owned.context));
 				owned.registerHarness(opened.harness);
 				open = opened.open;
 				for (const operation of open) await this.options.jobs.enqueue({ sessionId: job.sessionId, lane: operation.lane, operationId: operation.operationId });
 				const lane = await opened.harness.lane(job.lane, owned.context);
-				const terminal = await lane.getResult(job.operationId, owned.context);
+				const terminal = await traceStage("job.result.read", {}, () => lane.getResult(job.operationId, owned.context));
 				if (terminal !== undefined) { await this.options.jobs.complete(job, this.options.workerId); return result("completed"); }
 				owned.assertActive();
-				const driven = await lane.drive({ operationId: job.operationId, waitForRetry: false, pollDeferred: true }, owned.context);
+				const driven = await traceStage("job.drive", {}, (span) => lane.drive({ operationId: job.operationId, waitForRetry: false, pollDeferred: true }, owned.context).then((result) => {
+					annotateSpan(span, { "agent.drive.outcome": !result.ok ? "error" : result.value.kind === "settled" ? "settled" : result.value.reason });
+					return result;
+				}));
 				owned.assertActive();
-				return this.settleDrive(job, open, driven);
+				return traceStage("job.settle", {}, () => this.settleDrive(job, open, driven));
 			});
 		} catch (error) {
 			try {

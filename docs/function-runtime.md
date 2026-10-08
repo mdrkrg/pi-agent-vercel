@@ -62,6 +62,30 @@ Budgets must be positive integer milliseconds and satisfy `max(pass, API admissi
 
 Pool limits multiply across concurrent Functions. Renewals extend claim expiry, so use persisted expiry timestamps—not time since HTTP request—to assess takeover.
 
+## Tracing
+
+The Node Function explicitly initializes `@vercel/otel` once per module lifetime on Vercel. It is not a Next.js instrumentation hook. Application spans use the standard OpenTelemetry API; tracing does not change admission, Pi recovery, scheduling, or lease authority.
+
+| Setting | Behavior |
+| --- | --- |
+| `OTEL_SDK_DISABLED=true` | Disable SDK initialization; application spans become no-ops without another installed provider |
+| `OTEL_SERVICE_NAME` | Override the default `pi-agent-vercel` service name |
+| `OTEL_TRACES_SAMPLER`, `OTEL_TRACES_SAMPLER_ARG` | Configure SDK sampling; Vercel can apply additional sampling |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Explicit collector endpoint; also enables SDK initialization in local service/worker entry points |
+| `OTEL_EXPORTER_OTLP_PROTOCOL`, `OTEL_EXPORTER_OTLP_HEADERS` | SDK collector protocol/authentication; keep export credentials server-side |
+
+Ordinary local execution has no SDK exporter. Installing the SDK does not configure a Vercel destination: use [Session Tracing](https://vercel.com/docs/tracing/session-tracing) for browser-originated diagnostics, or configure [Trace Drains](https://vercel.com/docs/drains/reference/traces) for independent worker invocations and verify collection in the selected backend. A browser session does not automatically trace a separate cron request. Preserve Preview Protection and worker authentication when collecting traces.
+
+For a slow worker, inspect `function.configure` → `function.handle` / `database.ready` → `worker.tick`, then compare `worker.admission.recover`, `worker.discover`, `worker.run`, and `worker.reconcile`. Expand `job.pass` for claim-adjacent execution, authorization, session/harness loading, `job.drive`, settlement, and ownership cleanup. `function.close` measures repository/pool teardown. Platform cold-start/module-loading time precedes these application spans; use Vercel infrastructure spans for that portion.
+
+`submission.admit` records the durable submission ID after request creation; `job.pass` exports job/operation/submission correlation IDs, attempt count, status, job age, and lateness since `availableAt`. These let submission and multiple worker requests be correlated without storing trace context in Pi state. Lateness is not a first-claim timestamp or pure scheduler wait: it can include backlog, initialization, discovery, and recovery delays. The scheduler interval and time before the Function starts remain outside invocation duration.
+
+Application instrumentation exports route templates, not resource paths or query strings. It excludes prompts, replies, user/tenant identities, authentication headers, SQL text/parameters, and exception messages/stacks. Automatic SDK fetch instrumentation is deliberately disabled to avoid raw URL/error capture; `job.drive` includes model/tool wall-clock time but does not split first-token/network timing or individual SQL queries. Vercel infrastructure telemetry is configured separately. Trace metadata and correlation IDs still require appropriate backend access and retention policies.
+
+The SDK integrates with Vercel's request lifecycle for export; do not shut it down after each invocation. Hard termination can lose unexported/unfinished spans. Missing traces or spans are not evidence that durable work was never admitted or executed. Local in-memory tests do not qualify cloud export, sampling, tracing overhead, or hard-termination delivery.
+
+See [implementation](runtime-implementation.md#tracing-mechanics) for span nesting and [Vercel instrumentation](https://vercel.com/docs/tracing/instrumentation) for destination setup.
+
 ## Vercel and scheduling
 
 Deploy from repository root with Node 24 and the checked-in `vercel.mjs`. The build runs `pnpm build`, serves static chat from `dist/`, and keeps `/api/*` rewrites routed to the existing Function. Neon integration can supply pooled `DATABASE_URL`; retain its recommended SSL settings.

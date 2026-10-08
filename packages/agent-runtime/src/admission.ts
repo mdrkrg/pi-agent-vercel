@@ -4,6 +4,7 @@ import { operationMeta, operationResult } from "@earendil-works/pi-agent-core/ha
 import { PostgresSessionRepo, SessionLeaseBusyError, SessionLeaseManager, SubmissionRepo, type SessionLeaseOptions, type Submission } from "../../pi-postgres/src/index.ts";
 import { withSessionOwnership } from "./ownership.ts";
 import type { AuthenticatedRequest, SessionAuthorizer, SubmissionStart } from "./ingress.ts";
+import { annotateSpan, traceStage } from "./tracing.ts";
 
 export type SubmissionHarnessOptions<TContext extends object | undefined> = Omit<AgentHarnessOptions<TContext>, "session">;
 export type SubmissionHarnessFactory<TContext extends object | undefined> = (submission: Submission, context: Context) => SubmissionHarnessOptions<TContext> | Promise<SubmissionHarnessOptions<TContext>>;
@@ -22,9 +23,12 @@ export class PostgresAdmission<TContext extends object | undefined = object | un
 	constructor(private readonly options: PostgresAdmissionOptions<TContext>) {}
 
 	async submit(request: AuthenticatedRequest, authorizer: SessionAuthorizer, context: Context): Promise<SubmissionStart> {
-		await authorizer.authorize(request.principal, request.session, context);
-		const created = await this.options.submissions.create({ ...request.principal, sessionId: request.session.id, clientRequestId: request.clientRequestId, prompt: request.prompt, lane: this.options.lane ?? "main" });
-		return { submission: await this.recover(created.submission.id, context), created: created.created };
+		return traceStage("submission.admit", {}, async (span) => {
+			await authorizer.authorize(request.principal, request.session, context);
+			const created = await this.options.submissions.create({ ...request.principal, sessionId: request.session.id, clientRequestId: request.clientRequestId, prompt: request.prompt, lane: this.options.lane ?? "main" });
+			annotateSpan(span, { "agent.submission.id": created.submission.id, "agent.submission.created": created.created });
+			return { submission: await this.recover(created.submission.id, context), created: created.created };
+		});
 	}
 
 	async recover(id: string, context: Context): Promise<Submission> {

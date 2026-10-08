@@ -37,6 +37,14 @@ Start reading the code here:
 - **Failure diagnostics:** unexpected HTTP failures log only stage, fixed error category/type and elapsed time. Raw exceptions, SQL, credentials and conversation data are omitted.
 - Hard termination can bypass cleanup. Recovery waits for outstanding claims to expire, then delegates effect replay and deferred polling to Pi.
 
+## Tracing mechanics
+
+- [Entry bootstrap](../packages/agent-runtime/src/telemetry-bootstrap.ts) registers Vercel OTel only on Vercel or with an explicit local OTLP endpoint. [Request tracing](../packages/agent-runtime/src/tracing.ts) extracts only W3C trace context, inherits an active host context when no inbound parent exists, and opens a server span around configuration, handling, and cleanup. Incoming trace headers are never authorization inputs.
+- `submission.admit` attaches its durable ID after request creation, linking the API trace to later job passes. Each worker tick is a parent span for admission recovery, full discovery, bounded job execution, and projection reconciliation. Discovery emits a child for each visited session; job execution emits a claim span and a pass span with durable correlation IDs. Ownership acquisition, renewal, closure, renewal-wait, and release remain in their existing execution order.
+- Spans stay active across asynchronous calls and concurrent requests remain isolated. Success values and thrown errors pass through unchanged; failures mark error status without exporting exception content. Annotation/end failures are best-effort and cannot replace cleanup errors. With no SDK installed the same instrumentation is a no-op.
+- Job eligibility lateness is calculated when a claimed pass starts from the current `availableAt`; job age uses `createdAt`. Neither reconstructs historical claim timing. There is no new persistence record, trace outbox, or dependency of execution on telemetry delivery.
+- The initial slice measures aggregate database preparation and drive time, not individual SQL or provider first-token latency. Sampling and per-session span volume need measurement before production use. Configuration and trace-viewing guidance are in the [Function reference](function-runtime.md#tracing).
+
 ## Result reads and projections
 
 - **Authorize first:** check persisted user/tenant ownership and read native state/result in one SQL snapshot.
@@ -69,5 +77,6 @@ Start reading the code here:
 - Admission/ownership/results: [admission](../tests/postgres-admission-contract.test.ts), [drive ownership](../tests/postgres-drive-ownership.test.ts), and [results](../tests/postgres-submission-result.test.ts).
 - Fresh-process behavior: [SIGKILL boundaries](../tests/postgres-function-crash.test.ts), [tool recovery](../tests/postgres-tool-recovery.test.ts), and [independent local service](../tests/postgres-local-service.test.ts).
 - Forks: [HTTP contract](../tests/function-fork-http-contract.test.ts), [atomic ownership](../tests/postgres-owner-fork.test.ts), and [database service](../tests/postgres-function-service.test.ts).
+- Tracing: [async context/privacy](../tests/tracing-contract.test.ts), [SDK bootstrap](../tests/telemetry-bootstrap-contract.test.ts), and [database-backed Function spans](../tests/postgres-function-tracing.test.ts).
 
 Local recovery tests are not Vercel hard-termination qualification. Native replay guarantees belong to the [durable contract](operation-aware-contract.md).
