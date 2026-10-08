@@ -5,6 +5,7 @@ import { DriveJobRepo, PostgresSessionRepo, SessionLeaseManager, SubmissionRepo,
 import { PostgresAdmission, type SubmissionHarnessFactory } from "./admission.ts";
 import { PostgresRecoveryCoordinator } from "./recovery.ts";
 import { PostgresSubmissionReader } from "./submission-reader.ts";
+import { DEFAULT_INVOCATION_MS, DEFAULT_PASS_MS } from "./execution-budgets.ts";
 
 export type FunctionWorkerOptions<TContext extends object | undefined> = {
 	readonly repo: PostgresSessionRepo;
@@ -25,7 +26,7 @@ export class PostgresFunctionWorker<TContext extends object | undefined = object
 
 	async tick(context: Context) {
 		const controller = new AbortController();
-		const budget = this.options.maxInvocationMs ?? 55_000;
+		const budget = this.options.maxInvocationMs ?? DEFAULT_INVOCATION_MS;
 		if (!Number.isSafeInteger(budget) || budget <= 0) throw new Error("Function invocation budget must be positive");
 		const signal = context.abortSignal === undefined ? controller.signal : AbortSignal.any([context.abortSignal, controller.signal]);
 		const tickContext = withAbortSignal(signal, context);
@@ -35,7 +36,7 @@ export class PostgresFunctionWorker<TContext extends object | undefined = object
 			const pending = await admission.recoverPending(tickContext, this.options.scanLimit ?? 100);
 			const coordinator = new PostgresRecoveryCoordinator({
 				...this.options.discovery, repo: this.options.repo, jobs: this.options.jobs, leases: this.options.leases,
-				workerId: randomUUID(), context: tickContext, maxPassMs: this.options.maxPassMs ?? 45_000,
+				workerId: randomUUID(), context: tickContext, maxPassMs: this.options.maxPassMs ?? DEFAULT_PASS_MS,
 				...(this.options.lease === undefined ? {} : { lease: this.options.lease }),
 				harnessOptionsForJob: async (job, ownedContext) => {
 					const submission = job.submissionId === null ? await this.options.submissions.findOperation(job.sessionId, job.lane, job.operationId) : await this.options.submissions.get(job.submissionId);

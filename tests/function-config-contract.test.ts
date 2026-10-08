@@ -27,8 +27,8 @@ describe("Function environment configuration (no database or provider calls)", (
 		for (const provider of getBuiltinProviders()) expect(options.models.getProvider(provider)).toBeDefined();
 		expect(options.model).toMatchObject({ provider: "deepseek", id: "deepseek-flash" });
 		expect(options.models.getProvider("faux")).toBeUndefined();
-		expect(options).toMatchObject({ apiToken: "test-api", cronSecret: "test-worker", principal: { userId: "test-user", tenantId: "test-tenant", scopes: ["agent:run"] }, maxPassMs: 45_000, maxInvocationMs: 55_000, maxAdmissionMs: 10_000 });
-		expect(vi.mocked(PgExecutor).mock.calls[0]![0]).toMatchObject({ connectionString: base.DATABASE_URL, max: 4 });
+		expect(options).toMatchObject({ apiToken: "test-api", cronSecret: "test-worker", principal: { userId: "test-user", tenantId: "test-tenant", scopes: ["agent:run"] }, maxPassMs: 270_000, maxInvocationMs: 285_000, maxAdmissionMs: 10_000 });
+		expect(vi.mocked(PgExecutor).mock.calls[0]![0]).toMatchObject({ connectionString: base.DATABASE_URL, max: 4, connectionTimeoutMillis: 5_000, idleTimeoutMillis: 10_000, statement_timeout: 5_000, query_timeout: 6_000 });
 	});
 
 	it.each(["openai", "anthropic", "google", "openrouter", "groq", "mistral"])("selects an installed %s model without credentials", (provider) => {
@@ -72,11 +72,23 @@ describe("Function environment configuration (no database or provider calls)", (
 		expect(configure({ AGENT_ADMISSION_MS: "25000" }).maxAdmissionMs).toBe(25_000);
 	});
 
+	it("accepts the cleanup boundary and retains explicit shorter budgets", () => {
+		expect(configure({ AGENT_PASS_MS: "279000" }).maxPassMs).toBe(279_000);
+		expect(configure({ AGENT_PASS_MS: "45000", AGENT_INVOCATION_MS: "55000" })).toMatchObject({ maxPassMs: 45_000, maxInvocationMs: 55_000 });
+	});
+
+	it("rejects an unsafe integer before budget comparison or pool allocation", () => {
+		// 2^53 = Number.MAX_SAFE_INTEGER + 1. Must fail safe-integer validation.
+		expect(() => configure({ AGENT_PASS_MS: "9007199254740992" })).toThrow("Execution budgets must be positive integers");
+		expect(PgExecutor).not.toHaveBeenCalled();
+	});
+
 	it.each([
-		{ AGENT_ADMISSION_MS: "50000" }, { AGENT_ADMISSION_MS: "0" },
+		{ AGENT_ADMISSION_MS: "280000" }, { AGENT_ADMISSION_MS: "0" },
 		{ AGENT_ADMISSION_MS: "invalid" },
-		{ AGENT_PASS_MS: "50000", AGENT_INVOCATION_MS: "55000" },
-		{ AGENT_INVOCATION_MS: "56000" }, { AGENT_PASS_MS: "0" },
+		{ AGENT_INVOCATION_MS: "285001" }, { AGENT_PASS_MS: "0" },
+		{ AGENT_PASS_MS: "279001" },
+		{ AGENT_INVOCATION_MS: "275999" },
 		{ AGENT_INVOCATION_MS: "invalid" },
 	])("preserves bounded execution validation: %j", (overrides) => {
 		expect(() => configure(overrides)).toThrow(); expect(PgExecutor).not.toHaveBeenCalled();

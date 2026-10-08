@@ -18,7 +18,8 @@ describe("Vercel deployment configuration", () => {
 		// @ts-expect-error JavaScript deployment configuration has no declaration file.
 		const { default: config } = await import("../vercel.mjs");
 		expect(config.crons).toBeUndefined();
-		expect(config.functions["api/index.ts"].maxDuration).toBe(60);
+		expect(config.fluid).toBe(true);
+		expect(config.functions["api/index.ts"].maxDuration).toBe(300);
 		expect(config.installCommand).toBe("npx --yes pnpm@12.8.1 install --frozen-lockfile");
 		expect(config.buildCommand).toBe("npx --yes pnpm@12.8.1 run build");
 		expect(config.outputDirectory).toBe("dist");

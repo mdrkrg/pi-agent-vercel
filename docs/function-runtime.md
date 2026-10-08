@@ -52,13 +52,14 @@ Credentials stay server-side. This entry does not load coding-agent `auth.json`,
 | Setting | Default / constraint |
 | --- | --- |
 | `AGENT_ADMISSION_MS` | API admission ownership: 10,000ms; worker recovery remains 10,000ms |
-| `AGENT_PASS_MS` | Drive pass: 45,000ms |
-| `AGENT_INVOCATION_MS` | Worker invocation: 55,000ms maximum |
-| Function duration | 60s in `vercel.mjs` |
+| `AGENT_PASS_MS` | Drive pass: 270,000ms |
+| `AGENT_INVOCATION_MS` | Worker invocation: 285,000ms default and maximum |
+| Function duration | 300s in `vercel.mjs`, with Fluid compute enabled |
 | Session/job claim TTL | 90s; session renewal about every 30s |
 | PostgreSQL pool per invocation | Max 4; connection wait 5s, idle timeout 10s, statement timeout 5s, query timeout 6s |
+| External scheduler transport | HTTP timeout 310s, CLI process timeout 330s. Next request 60s after completion |
 
-Budgets must be positive integer milliseconds and satisfy `max(pass, API admission) + 6,000 <= invocation <= 55,000`. Increase admission only after measuring database latency. Invocation leaves just 5s below the platform limit; measure entry/bootstrap/teardown overhead.
+Budgets must be positive safe integer milliseconds and satisfy `max(pass, API admission) + 6,000 <= invocation <= 285,000`. Defaults reserve 15s at both deadline boundaries. Measure entry/bootstrap/teardown overhead and database latency before adjusting budgets.
 
 Pool limits multiply across concurrent Functions. Renewals extend claim expiry, so use persisted expiry timestamps—not time since HTTP request—to assess takeover.
 

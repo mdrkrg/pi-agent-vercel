@@ -1,6 +1,10 @@
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { parseArgs, parseEnv } from "node:util";
+import { FUNCTION_MAX_DURATION_MS } from "../packages/agent-runtime/src/execution-budgets.ts";
+
+const EXTERNAL_WORKER_REQUEST_TIMEOUT_SECONDS = FUNCTION_MAX_DURATION_MS / 1_000 + 10;
+const EXTERNAL_WORKER_CLI_TIMEOUT_MS = (EXTERNAL_WORKER_REQUEST_TIMEOUT_SECONDS + 20) * 1_000;
 
 export const EXTERNAL_WORKER_HELP = `Usage: pnpm worker:external [options]
 
@@ -98,7 +102,7 @@ export const executeVercel: ExecuteVercel = (args, stdin) =>
   new Promise((resolve, reject) => {
     const child = spawn("vercel", args, {
       stdio: ["pipe", "pipe", "pipe"],
-      timeout: 90_000,
+      timeout: EXTERNAL_WORKER_CLI_TIMEOUT_MS,
       killSignal: "SIGKILL",
     });
     let stdout = "";
@@ -148,7 +152,7 @@ export async function requestExternalWorker(
         "--silent",
         "--show-error",
         "--max-time",
-        "65",
+        String(EXTERNAL_WORKER_REQUEST_TIMEOUT_SECONDS),
         "--max-redirs",
         "0",
         "--write-out",

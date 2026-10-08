@@ -1,3 +1,5 @@
+import budgets from "./packages/agent-runtime/src/execution-budgets.json" with { type: "json" };
+
 const scheduler = process.env.AGENT_WORKER_SCHEDULER ?? "external";
 if (scheduler !== "external" && scheduler !== "vercel-cron") {
 	throw new Error("AGENT_WORKER_SCHEDULER must be external or vercel-cron");
@@ -16,7 +18,7 @@ const config = {
 	fluid: true,
 	functions: {
 		"api/index.ts": {
-			maxDuration: 60,
+			maxDuration: budgets.functionMaxDurationSeconds,
 			supportsCancellation: false,
 		},
 	},

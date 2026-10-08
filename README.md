@@ -18,7 +18,7 @@ pnpm dev:reset  # Confirm before deleting development data.
 
 Deploy from repository root using the checked-in `vercel.mjs`. See the [Function reference](docs/function-runtime.md) for the HTTP contract and deployment settings.
 
-- Runtime: Node 24, pnpm 12.8.1. Function limit 60s.
+- Runtime: Node 24, pnpm 12.8.1. Function limit 300s with Fluid compute.
 - UI: static Svelte/Vite build at `/`, existing `/api/*` routes remain unchanged.
 - Environment: configure [.env.example](.env.example). Neon integration supplies `DATABASE_URL`.
 - Providers: installed Pi built-ins, configure `AGENT_PROVIDER`, `AGENT_MODEL_ID`, and provider credentials.

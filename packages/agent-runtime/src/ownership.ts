@@ -1,6 +1,7 @@
 import { withAbortSignal, withoutAbortSignal, type Context } from "@earendil-works/pi-agent-core/harness/context";
 import type { Session } from "@earendil-works/pi-agent-core/harness/session";
 import { SessionLeaseLostError, SessionLeaseManager, type SessionLease, type SessionLeaseOptions } from "../../pi-postgres/src/index.ts";
+import { DEFAULT_PASS_MS } from "./execution-budgets.ts";
 
 export class DriveDeadlineExceeded extends Error {
 	readonly name = "DriveDeadlineExceeded";
@@ -23,7 +24,7 @@ export async function withSessionOwnership<T>(
 	run: (owned: OwnedSession) => Promise<T>,
 ): Promise<T> {
 	const ttlMs = options.lease?.ttlMs ?? 90_000;
-	const budgetMs = options.maxDurationMs ?? 45_000;
+	const budgetMs = options.maxDurationMs ?? DEFAULT_PASS_MS;
 	if (!Number.isSafeInteger(budgetMs) || budgetMs <= 0) throw new Error("Execution budget must be a positive safe integer");
 	context.abortSignal?.throwIfAborted();
 	const lease = await options.leases.acquire(options.sessionId, options.lease);

@@ -106,7 +106,7 @@ describe("protected worker transport", () => {
     expect(args.slice(0, args.indexOf("--"))).toEqual(["curl", "/api/worker", "--deployment", url]);
     expect(args).toContain("POST");
     expect(args).toContain("@-");
-    expect(args).toContain("65");
+    expect(args[args.indexOf("--max-time") + 1]).toBe("310");
     expect(args).not.toContain(token);
     expect(stdin).toBe(`Authorization: Bearer ${token}\n`);
     expect(args).not.toContain("--data");
@@ -151,14 +151,14 @@ describe("resident external wake-ups", () => {
     const tick = vi
       .fn()
       .mockImplementationOnce(async () => {
-        await new Promise<void>((resolve) => setTimeout(resolve, 70_000));
+        await new Promise<void>((resolve) => setTimeout(resolve, 300_000));
         return summary;
       })
       .mockResolvedValueOnce(summary)
       .mockRejectedValue(new Error("fixture stop"));
     const log = vi.fn();
     const run = expect(runExternalWorker(config, tick, log)).rejects.toThrow("fixture stop");
-    await vi.advanceTimersByTimeAsync(70_000);
+    await vi.advanceTimersByTimeAsync(300_000);
     expect(tick).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(59_999);
     expect(tick).toHaveBeenCalledTimes(1);

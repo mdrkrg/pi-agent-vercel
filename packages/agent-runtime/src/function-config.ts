@@ -2,6 +2,7 @@ import { createModels, fauxAssistantMessage, fauxProvider } from "@earendil-work
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { PgExecutor } from "../../pi-postgres/src/index.ts";
 import { FunctionService } from "./function-service.ts";
+import { DEFAULT_INVOCATION_MS, DEFAULT_PASS_MS, FUNCTION_MAX_DURATION_MS, MIN_CLEANUP_MS } from "./execution-budgets.ts";
 
 function required(env: NodeJS.ProcessEnv, key: string): string {
 	const value = env[key]; if (value === undefined || value.length === 0) throw new Error(`${key} is required`); return value;
@@ -21,9 +22,9 @@ export function createFunctionServiceFromEnv(env: NodeJS.ProcessEnv = process.en
 		model = models.getModel(provider, required(env, "AGENT_MODEL_ID"));
 		if (model === undefined) throw new Error("Configured model is absent from the installed Pi catalog");
 	}
-	const maxPassMs = milliseconds(env.AGENT_PASS_MS, 45_000); const maxInvocationMs = milliseconds(env.AGENT_INVOCATION_MS, 55_000);
+	const maxPassMs = milliseconds(env.AGENT_PASS_MS, DEFAULT_PASS_MS); const maxInvocationMs = milliseconds(env.AGENT_INVOCATION_MS, DEFAULT_INVOCATION_MS);
 	const maxAdmissionMs = milliseconds(env.AGENT_ADMISSION_MS, 10_000);
-	if (Math.max(maxPassMs, maxAdmissionMs) + 6_000 > maxInvocationMs || maxInvocationMs > 55_000) throw new Error("Invocation budget must reserve cleanup time and fit the 60s Function limit");
+	if (Math.max(maxPassMs, maxAdmissionMs) + MIN_CLEANUP_MS > maxInvocationMs || maxInvocationMs > DEFAULT_INVOCATION_MS) throw new Error(`Invocation budget must reserve cleanup time and stay at or below ${DEFAULT_INVOCATION_MS / 1_000}s within the ${FUNCTION_MAX_DURATION_MS / 1_000}s Function limit`);
 	const apiToken = required(env, "APP_API_TOKEN"); const cronSecret = required(env, "CRON_SECRET");
 	const principal = { userId: required(env, "APP_USER_ID"), tenantId: required(env, "APP_TENANT_ID"), scopes: ["agent:run"] };
 	const executor = new PgExecutor({ connectionString: required(env, "DATABASE_URL"), max: 4, connectionTimeoutMillis: 5_000, idleTimeoutMillis: 10_000, statement_timeout: 5_000, query_timeout: 6_000 });

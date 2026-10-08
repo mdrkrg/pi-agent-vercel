@@ -1,0 +1,5 @@
+{
+  "functionMaxDurationSeconds": 300,
+  "headroomMs": 15000,
+  "minCleanupMs": 6000
+}
