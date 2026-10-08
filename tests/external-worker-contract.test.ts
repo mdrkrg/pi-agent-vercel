@@ -8,6 +8,7 @@ import {
   externalWorkerConfig,
   requestExternalWorker,
   runExternalWorker,
+  WorkerHttpError,
   type ExternalWorkerConfig,
   type ExecuteVercel,
 } from "../scripts/external-worker.ts";
@@ -113,8 +114,14 @@ describe("protected worker transport", () => {
   });
 
   it.each([
-    [`fixture-private-response\n401`, "HTTP 401"],
-    [`fixture-private-response\n500`, "HTTP 500"],
+    [
+      `fixture-private-response\n401`,
+      "Worker returned HTTP 401. Check CRON_SECRET and Preview access.",
+    ],
+    [
+      `fixture-private-response\n500`,
+      "Worker returned HTTP 500. Server-side failure; inspect deployment logs.",
+    ],
     [`fixture-private-response`, "Unexpected HTTP response format"],
     [`<html>fixture-private-response</html>\n200`, "Invalid worker response"],
     [`{"discovered":-1,"private":"fixture-private-response"}\n200`, "Invalid worker response"],
@@ -164,9 +171,34 @@ describe("resident external wake-ups", () => {
     expect(log.mock.calls.flat().join("\n")).not.toContain(token);
   });
 
-  it("stops after a failed request instead of issuing immediate retries", async () => {
+  it("stops on transport or protocol failures", async () => {
     const tick = vi.fn().mockRejectedValue(new Error("fixture failure"));
     await expect(runExternalWorker(config, tick, () => {})).rejects.toThrow("fixture failure");
+    expect(tick).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps scheduled wake-ups after a server error without issuing an immediate retry", async () => {
+    vi.useFakeTimers();
+    const tick = vi
+      .fn()
+      .mockRejectedValueOnce(new WorkerHttpError(500))
+      .mockResolvedValueOnce(summary)
+      .mockRejectedValue(new Error("fixture stop"));
+    const log = vi.fn();
+    const run = expect(runExternalWorker(config, tick, log)).rejects.toThrow("fixture stop");
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(tick).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(tick).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await run;
+    expect(tick).toHaveBeenCalledTimes(3);
+    expect(log.mock.calls.flat().join("\n")).toContain("Next wake-up in 60s.");
+  });
+
+  it.each([401, 403, 404])("stops immediately on HTTP %s", async (status) => {
+    const tick = vi.fn().mockRejectedValue(new WorkerHttpError(status));
+    await expect(runExternalWorker(config, tick, () => {})).rejects.toThrow(`HTTP ${status}`);
     expect(tick).toHaveBeenCalledTimes(1);
   });
 

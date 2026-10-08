@@ -63,7 +63,7 @@ pnpm worker:external --url https://YOUR-DEPLOYMENT.vercel.app
 ```
 
 - Reads `CRON_SECRET` from `.env` or the shell, never the API token. Use `--env-file <path>` to select a different credential file.
-- Runs continuously, waiting **60s after each request** without overlapping requests. Stop with **Ctrl+C**. A failed request exits with an error.
+- Runs continuously, waiting **60s after each request** without overlapping requests. Stop with **Ctrl+C**. A `5xx` is logged and the next scheduled request still runs. Other failures exit.
 - Preserves Preview Protection through `vercel curl`. Browser polling still only observes results.
 - This is a foreground development helper, not a managed cloud scheduler. Idle requests keep Neon awake and consume quota, so stop it when done.
 

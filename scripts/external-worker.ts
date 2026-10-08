@@ -10,9 +10,21 @@ export const EXTERNAL_WORKER_HELP = `Usage: pnpm worker:external [options]
 
 Requires a logged-in Vercel CLI. Calls only /api/worker through vercel curl.
 Uses CRON_SECRET, never APP_API_TOKEN. Waits 60s after each request.
-Runs until Ctrl+C or a request fails. Idle requests keep Neon awake.`;
+Runs until Ctrl+C. HTTP 5xx waits for the next scheduled request; other failures exit.
+Idle requests keep Neon awake.`;
 
 export class ExternalWorkerError extends Error {}
+export class WorkerHttpError extends ExternalWorkerError {
+  constructor(readonly status: number) {
+    const advice =
+      status >= 500
+        ? "Server-side failure; inspect deployment logs."
+        : status === 401 || status === 403
+          ? "Check CRON_SECRET and Preview access."
+          : "Check deployment routing and access.";
+    super(`Worker returned HTTP ${status}. ${advice}`);
+  }
+}
 export type ExternalWorkerConfig = {
   url: string;
   token: string;
@@ -151,11 +163,9 @@ export async function requestExternalWorker(
   }
   const split = response.lastIndexOf("\n");
   const status = response.slice(split + 1).trim();
-  if (!/^\d{3}$/.test(status)) throw new ExternalWorkerError("Unexpected HTTP response format.");
-  if (status !== "200")
-    throw new ExternalWorkerError(
-      `Worker returned HTTP ${status}. Check CRON_SECRET and deployment access.`,
-    );
+  if (!/^\d{3}$/.test(status) || Number(status) < 100 || Number(status) > 599)
+    throw new ExternalWorkerError("Unexpected HTTP response format.");
+  if (status !== "200") throw new WorkerHttpError(Number(status));
   let body;
   try {
     body = JSON.parse(response.slice(0, split));
@@ -187,10 +197,15 @@ export async function runExternalWorker(
 ): Promise<void> {
   while (true) {
     log("Worker request started.");
-    const result = await tick(config);
-    log(
-      `HTTP 200 · discovered ${result.discovered} · driven ${result.driven} · pending ${result.pending} · projections ${result.projections}`,
-    );
+    try {
+      const result = await tick(config);
+      log(
+        `HTTP 200 · discovered ${result.discovered} · driven ${result.driven} · pending ${result.pending} · projections ${result.projections}`,
+      );
+    } catch (error) {
+      if (!(error instanceof WorkerHttpError) || error.status < 500) throw error;
+      log(`${error.message} Next wake-up in 60s.`);
+    }
     await new Promise<void>((resolve) => setTimeout(resolve, 60_000));
   }
 }
