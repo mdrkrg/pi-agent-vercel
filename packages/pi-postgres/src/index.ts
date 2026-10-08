@@ -1,7 +1,7 @@
 export { PostgresStorage } from "./storage.ts";
 export { PostgresSessionRepo, SessionForkConflictError, type SessionOwner, type PostgresOperationSnapshot } from "./session-repo.ts";
 export { CREATE_PI_POSTGRES_SCHEMA, deletePiPostgresSession, ensurePiPostgresSchema } from "./schema.ts";
-export { PgExecutor, type SqlExecutor, type SqlQueryResult } from "./sql.ts";
+export { PgExecutor, type SqlExecutor, type SqlQueryResult, type SqlTelemetry, type SqlOperation, type PoolSnapshot } from "./sql.ts";
 export {
 	SessionLeaseBusyError,
 	SessionLeaseLostError,

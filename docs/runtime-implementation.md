@@ -39,10 +39,12 @@ Start reading the code here:
 
 ## Tracing mechanics
 
-- **Request parent:** [tracing](../packages/agent-runtime/src/tracing.ts) accepts W3C context, otherwise uses the active host span or Vercel SDK root. Baggage and identity headers are not imported or used for authorization.
-- **Privacy and failure isolation:** [bootstrap](../packages/agent-runtime/src/telemetry-bootstrap.ts) installs an attribute allowlist before automatic SDK exporters, removing SDK-enriched request headers, events and status messages. Span/context setup failures fall back to execution without retrying the callback; telemetry never replaces execution/cleanup errors or durable authority.
-- **Measured phases:** configuration/database preparation/handling/cleanup; worker admission recovery/discovery/job passes/reconciliation; ownership acquisition/renewal/closure/release. Durable IDs correlate admissions and passes. Ticks retain completed-stage counts and failure phase; deadline signaling precedes annotations. Job lateness uses current `availableAt`, age uses `createdAt`, not historical claim timing.
-- **Limits:** discovery emits spans per visited session. Sampling and span volume require measurement; individual SQL and provider first-token latency are not measured. There is no trace outbox. Collection settings and local flush behavior are in the [Function reference](function-runtime.md#tracing).
+- **Parent and privacy:** [tracing](../packages/agent-runtime/src/tracing.ts) uses W3C, active host or Vercel SDK context; never baggage or identity headers. [Bootstrap](../packages/agent-runtime/src/telemetry-bootstrap.ts) allowlists attributes, stripping content, credentials, SQL/parameters, headers, events and exception messages. Telemetry failure cannot retry execution or replace its errors.
+- **Runtime phases:** request setup/handling/cleanup, worker recovery/discovery/driving/reconciliation and ownership lifecycle. Durable IDs correlate passes; ticks retain completed-stage counts and deadline phase. Job lateness uses `availableAt`; age uses `createdAt`.
+- **Database:** summaries are default; opt-in detail separates `db.pool.acquire` (checkout/connection establishment), `db.query` (transport/server execution; fixed labels) and `db.transaction` (acquisition through commit/rollback/release).
+- **Summaries:** major phase spans aggregate SQL/acquisition/transaction counts, durations and errors within their async context. Nested and concurrent times overlap: **totals are not exclusive wall time** and must not be added together.
+- **Provider:** `provider.request` measures first headers, first nonempty content delta (text/thinking/tool arguments), first text delta and terminal result. Observing lazy-stream emission avoids durable-consumer backpressure; timing includes auth/setup/loading and provider retries, but excludes harness settlement. Frozen/custom or prefilled streams may lack first-delta timing; missing is not zero. Cancellation ends observation as interrupted without settling the provider stream; external outcome remains unknown.
+- **Limits:** per-session discovery and opt-in SQL detail increase span volume; measure sampling/exporter limits. No server-only SQL timing, per-attempt provider HTTP timing or trace outbox. Settings: [Function reference](function-runtime.md#tracing).
 
 ## Result reads and projections
 

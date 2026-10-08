@@ -20,7 +20,9 @@ it("uses the real Vercel SDK without exporting SDK-enriched headers or losing th
 	const request = exported.find((span) => span.name === "function.request")!;
 	expect(request.traceId).toBe("0123456789abcdef0123456789abcdef");
 	expect(request.parentSpanId).toBe("0123456789abcdef");
-	expect(request.attributes.map((attribute) => attribute.key).sort()).toEqual(["http.request.method", "http.response.status_code", "http.route"]);
+	expect(request.attributes.map((attribute) => attribute.key).sort()).toEqual(["agent.db.query.count", "agent.db.query.total_ms", "http.request.method", "http.response.status_code", "http.route"]);
+	expect(request.attributes).toContainEqual({ key: "agent.db.query.count", value: { intValue: 1 } });
+	expect(exported.find((span) => span.name === "db.query")!.attributes).toEqual([{ key: "db.operation.name", value: { stringValue: "SELECT" } }]);
 	const handle = exported.find((span) => span.name === "function.handle")!;
 	expect(handle.events).toEqual([]);
 	expect(handle.status).toEqual({ code: 2 });

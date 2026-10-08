@@ -1,5 +1,6 @@
 import { context, propagation, SpanStatusCode } from "@opentelemetry/api";
 import { traceFunctionRequest, traceStage } from "../../packages/agent-runtime/src/tracing.ts";
+import { createSqlTelemetry } from "../../packages/agent-runtime/src/sql-tracing.ts";
 
 // Separate process: exercise the real SDK without contaminating the test runner's globals.
 const reports: unknown[] = [];
@@ -23,6 +24,7 @@ if (process.argv[2] === "host") {
 			span.setAttribute("unexpected.attribute", "private-attribute");
 			span.setStatus({ code: SpanStatusCode.ERROR, message: "private-status" });
 			span.addEvent("exception", { "exception.message": "private-exception" });
+			await createSqlTelemetry(true).query("SELECT", async () => "private-row");
 		});
 	});
 	await Promise.all(pending.map((value) => typeof value === "function" ? value() : value));

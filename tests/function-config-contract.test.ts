@@ -3,10 +3,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createFunctionServiceFromEnv } from "../packages/agent-runtime/src/function-config.ts";
 import { FunctionService } from "../packages/agent-runtime/src/function-service.ts";
 import { PgExecutor } from "../packages/pi-postgres/src/index.ts";
+import { createSqlTelemetry } from "../packages/agent-runtime/src/sql-tracing.ts";
 
 // Configuration contracts must not connect to PostgreSQL or call real providers.
 vi.mock("../packages/agent-runtime/src/function-service.ts", () => ({ FunctionService: vi.fn(function () {}) }));
 vi.mock("../packages/pi-postgres/src/index.ts", () => ({ PgExecutor: vi.fn(function () {}) }));
+vi.mock("../packages/agent-runtime/src/sql-tracing.ts", () => ({ createSqlTelemetry: vi.fn(() => ({})) }));
 
 const base: NodeJS.ProcessEnv = {
 	DATABASE_URL: "postgresql://unused/isolated-test",
@@ -29,6 +31,11 @@ describe("Function environment configuration (no database or provider calls)", (
 		expect(options.models.getProvider("faux")).toBeUndefined();
 		expect(options).toMatchObject({ apiToken: "test-api", cronSecret: "test-worker", principal: { userId: "test-user", tenantId: "test-tenant", scopes: ["agent:run"] }, maxPassMs: 270_000, maxInvocationMs: 285_000, maxAdmissionMs: 10_000 });
 		expect(vi.mocked(PgExecutor).mock.calls[0]![0]).toMatchObject({ connectionString: base.DATABASE_URL, max: 4, connectionTimeoutMillis: 5_000, idleTimeoutMillis: 10_000, statement_timeout: 5_000, query_timeout: 6_000 });
+	});
+
+	it.each([undefined, "false", "true"])("enables SQL detail only for explicit true: %s", (value) => {
+		configure({ AGENT_TRACE_SQL_DETAIL: value });
+		expect(createSqlTelemetry).toHaveBeenCalledWith(value === "true");
 	});
 
 	it.each(["openai", "anthropic", "google", "openrouter", "groq", "mistral"])("selects an installed %s model without credentials", (provider) => {

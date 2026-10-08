@@ -69,6 +69,7 @@ Application entries initialize Vercel OTel on Vercel. Configure a [Trace Drain](
 
 | Setting | Behavior |
 | --- | --- |
+| `AGENT_TRACE_SQL_DETAIL=true` | Opt-in SQL/query/checkout/transaction spans and pool snapshots; default retains summaries only |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Enables local collection; for example `http://localhost:4318` (SDK appends `/v1/traces`) |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Trace-specific collector URL, including `/v1/traces`; takes precedence |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | Use `http/protobuf` (default) or `http/json` |

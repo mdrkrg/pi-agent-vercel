@@ -4,6 +4,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import handler from "../api/index.ts";
 import { deletePiPostgresSession, PgExecutor } from "../packages/pi-postgres/src/index.ts";
 import { captureTracing } from "./fixtures/tracing.ts";
+import { createSqlTelemetry } from "../packages/agent-runtime/src/sql-tracing.ts";
+import { traceStage } from "../packages/agent-runtime/src/tracing.ts";
 
 // Test the real Function/worker with a memory exporter, never an inherited cloud exporter.
 vi.mock("../packages/agent-runtime/src/telemetry-bootstrap.ts", () => ({}));
@@ -40,7 +42,8 @@ describe.skipIf(databaseUrl === undefined)("Function tracing over isolated Postg
 		return { status: res.statusCode, body: JSON.parse(res.data) };
 	}
 
-	it("captures the actual tick, job drive, bootstrap and teardown without content or credentials", async () => {
+	it.each([false, true])("captures provider timing and SQL summaries (SQL detail: %s) without content or credentials", async (detail) => {
+		vi.stubEnv("AGENT_TRACE_SQL_DETAIL", String(detail));
 		const created = await invoke("/api/sessions", "POST");
 		expect(created.status).toBe(201);
 		const sessionId: string = created.body.session.id; sessions.push(sessionId);
@@ -60,9 +63,10 @@ describe.skipIf(databaseUrl === undefined)("Function tracing over isolated Postg
 		expect(admissionSpan.attributes).toMatchObject({ "agent.submission.id": submissionId, "agent.submission.created": true });
 		expect(admissionSpan.spanContext().traceId).not.toBe(tickSpan.spanContext().traceId);
 		const workerTrace = spans.filter((span) => span.spanContext().traceId === tickSpan.spanContext().traceId);
-		for (const name of ["function.configure", "database.ready", "job.claim", "ownership.acquire", "ownership.close", "ownership.release", "function.close"]) {
+		for (const name of ["function.configure", "database.ready", "job.claim", "ownership.acquire", "ownership.close", "ownership.release", "function.close", "provider.request"]) {
 			expect(workerTrace.some((span) => span.name === name), name).toBe(true);
 		}
+		for (const name of ["db.query", "db.pool.acquire", "db.transaction"]) expect(workerTrace.some((span) => span.name === name), name).toBe(detail);
 		for (const name of ["worker.admission.recover", "worker.discover", "worker.run", "worker.reconcile"]) {
 			expect(workerTrace.find((span) => span.name === name)!.parentSpanContext?.spanId).toBe(tickSpan.spanContext().spanId);
 		}
@@ -72,6 +76,14 @@ describe.skipIf(databaseUrl === undefined)("Function tracing over isolated Postg
 		expect(jobSpan.attributes["agent.job.eligible_delay_ms"]).toBeGreaterThanOrEqual(0);
 		expect(workerTrace.find((span) => span.name === "job.drive")!.parentSpanContext?.spanId).toBe(jobSpan.spanContext().spanId);
 		expect(workerTrace.find((span) => span.name === "job.drive")!.attributes["agent.drive.outcome"]).toBe("settled");
+		const drive = workerTrace.find((span) => span.name === "job.drive")!;
+		expect(drive.attributes["agent.db.query.count"]).toBeGreaterThan(0);
+		expect(drive.attributes["agent.db.query.total_ms"]).toBeGreaterThanOrEqual(0);
+		expect(tickSpan.attributes["agent.db.query.count"]).toBeGreaterThan(drive.attributes["agent.db.query.count"] as number);
+		const provider = workerTrace.find((span) => span.name === "provider.request")!;
+		expect(provider.parentSpanContext?.spanId).toBe(drive.spanContext().spanId);
+		expect(provider.attributes).toMatchObject({ "agent.provider.outcome": "stop", "agent.provider.cancel_requested": false });
+		expect(provider.attributes["agent.provider.total_ms"]).toBeGreaterThanOrEqual(0);
 		expect(workerTrace.find((span) => span.name === "function.request")!.attributes["http.response.status_code"]).toBe(200);
 		const exported = JSON.stringify(spans.map((span) => ({ name: span.name, attributes: span.attributes, status: span.status, events: span.events })));
 		expect(exported).not.toMatch(/private-prompt|private-answer|private-api-token|private-worker-token|private-retry-key|private-user|private-tenant/);
@@ -84,5 +96,27 @@ describe.skipIf(databaseUrl === undefined)("Function tracing over isolated Postg
 		expect(spans.some((span) => span.name === "worker.tick" || span.name === "database.ready")).toBe(false);
 		expect(spans.find((span) => span.name === "function.request")!.attributes).toMatchObject({ "http.route": "/api/worker", "http.response.status_code": 401 });
 		expect(JSON.stringify(spans.map((span) => span.attributes))).not.toContain("private-query");
+	});
+
+	it("separates a real exhausted-pool wait from statement execution", async () => {
+		const sql = new PgExecutor({ connectionString: databaseUrl!, max: 1 }, createSqlTelemetry(true));
+		let ready!: () => void; let release!: () => void;
+		const acquired = new Promise<void>((resolve) => { ready = resolve; });
+		const held = new Promise<void>((resolve) => { release = resolve; });
+		const holding = sql.transaction(async () => { ready(); await held; });
+		try {
+			await acquired;
+			const pending = traceStage("job.drive", {}, () => sql.query("SELECT $1::text AS value", ["private-query-value"]));
+			await new Promise((resolve) => setTimeout(resolve, 30));
+			release(); await holding;
+			expect(await pending).toMatchObject({ rows: [{ value: "private-query-value" }] });
+			const spans = capture.exporter.getFinishedSpans();
+			const drive = spans.find((span) => span.name === "job.drive")!;
+			expect(drive.attributes).toMatchObject({ "agent.db.acquire.count": 1, "agent.db.query.count": 1 });
+			expect(drive.attributes["agent.db.acquire.total_ms"]).toBeGreaterThanOrEqual(20);
+			const checkout = spans.find((span) => span.name === "db.pool.acquire" && span.parentSpanContext?.spanId === drive.spanContext().spanId)!;
+			expect(checkout.attributes).toMatchObject({ "agent.db.pool.total": 1, "agent.db.pool.idle": 0 });
+			expect(JSON.stringify(spans.map((span) => span.attributes))).not.toContain("private-query-value");
+		} finally { release(); await holding; await sql.close(); }
 	});
 });

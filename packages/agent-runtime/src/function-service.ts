@@ -11,6 +11,7 @@ import { reportFunctionFailure, type FunctionFailureStage } from "./function-dia
 import type { Principal } from "./ingress.ts";
 import { PostgresSubmissionReader } from "./submission-reader.ts";
 import { traceStage } from "./tracing.ts";
+import { tracedModels } from "./provider-tracing.ts";
 
 export type ServiceToolContext = { readonly principal: Principal; readonly sessionId: string; readonly submissionId: string; readonly operationId: string };
 export type FunctionServiceOptions = {
@@ -80,18 +81,19 @@ export class FunctionService {
 	readonly reader: PostgresSubmissionReader;
 	private readyPromise: Promise<void> | undefined;
 	constructor(private readonly options: FunctionServiceOptions) {
+		const models = tracedModels(options.models);
 		this.repo = new PostgresSessionRepo(options.executor); this.submissions = new SubmissionRepo(options.executor);
 		this.jobs = new DriveJobRepo(options.executor); this.leases = new SessionLeaseManager(options.executor);
 		const harnessOptions = async (submission: Awaited<ReturnType<SubmissionRepo["get"]>>) => {
 			if (submission === undefined || await this.repo.authorizedMetadata(submission.sessionId, submission.userId, submission.tenantId) === undefined) throw new Error("Submission session authorization unavailable");
 			return {
-				models: options.models, model: options.model, tools: options.tools ?? [],
+				models, model: options.model, tools: options.tools ?? [],
 				toolContext: { principal: { userId: submission.userId, tenantId: submission.tenantId, scopes: ["agent:run"] }, sessionId: submission.sessionId, submissionId: submission.id, operationId: submission.operationId ?? submission.id },
 			};
 		};
 		const shared = { repo: this.repo, submissions: this.submissions, leases: this.leases, harnessOptions, ...(options.lease === undefined ? {} : { lease: options.lease }) };
 		this.admission = new PostgresAdmission({ ...shared, ...(options.maxAdmissionMs === undefined ? {} : { maxAdmissionMs: options.maxAdmissionMs }) });
-		this.worker = new PostgresFunctionWorker({ ...shared, jobs: this.jobs, discovery: { models: options.models, model: options.model }, ...(options.maxPassMs === undefined ? {} : { maxPassMs: options.maxPassMs }), ...(options.maxInvocationMs === undefined ? {} : { maxInvocationMs: options.maxInvocationMs }) });
+		this.worker = new PostgresFunctionWorker({ ...shared, jobs: this.jobs, discovery: { models, model: options.model }, ...(options.maxPassMs === undefined ? {} : { maxPassMs: options.maxPassMs }), ...(options.maxInvocationMs === undefined ? {} : { maxInvocationMs: options.maxInvocationMs }) });
 		this.reader = new PostgresSubmissionReader(this.repo, this.submissions);
 	}
 	ready(): Promise<void> { return this.readyPromise ??= traceStage("database.ready", {}, () => ensurePiPostgresSchema(this.options.executor)); }

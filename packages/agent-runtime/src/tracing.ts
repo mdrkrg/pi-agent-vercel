@@ -1,5 +1,5 @@
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http";
-import { context, INVALID_SPAN_CONTEXT, isSpanContextValid, propagation, ROOT_CONTEXT, SpanKind, SpanStatusCode, trace, type Attributes, type Context, type Span, type SpanContext, type SpanOptions } from "@opentelemetry/api";
+import { context, createContextKey, INVALID_SPAN_CONTEXT, isSpanContextValid, propagation, ROOT_CONTEXT, SpanKind, SpanStatusCode, trace, type Attributes, type Context, type Span, type SpanContext, type SpanOptions } from "@opentelemetry/api";
 
 /** Stable names only: prompts, URLs, SQL, and error messages must never name spans. */
 type Stage = "function.request" | "function.configure" | "function.handle" | "function.close"
@@ -8,7 +8,24 @@ type Stage = "function.request" | "function.configure" | "function.handle" | "fu
 	| "worker.discover.harness.create" | "worker.discover.publish" | "worker.run" | "worker.reconcile" | "job.claim"
 	| "job.pass" | "job.metadata" | "job.authorize" | "job.session.open" | "job.harness.create"
 	| "job.result.read" | "job.drive" | "job.settle" | "job.release" | "job.reschedule" | "ownership.acquire"
-	| "ownership.close" | "ownership.renew" | "ownership.renewal.wait" | "ownership.release";
+	| "ownership.close" | "ownership.renew" | "ownership.renewal.wait" | "ownership.release"
+	| "db.query" | "db.pool.acquire" | "db.transaction" | "provider.request";
+
+const sqlScopesKey = createContextKey("pi-agent-vercel.sql-scopes");
+const summarizedStages = new Set<Stage>(["function.request", "database.ready", "submission.admit", "worker.tick", "worker.discover", "job.pass", "job.drive"]);
+type SqlSummary = Record<string, number>;
+
+/** Durations are sums, not exclusive wall time; concurrent queries can overlap. */
+export function recordSqlMeasurement(kind: "query" | "acquire" | "transaction", elapsedMs: number, failed: boolean): void {
+	try {
+		for (const summary of (context.active().getValue(sqlScopesKey) as SqlSummary[] | undefined) ?? []) {
+			const prefix = `agent.db.${kind}`;
+			summary[`${prefix}.count`] = (summary[`${prefix}.count`] ?? 0) + 1;
+			summary[`${prefix}.total_ms`] = (summary[`${prefix}.total_ms`] ?? 0) + elapsedMs;
+			if (failed) summary[`${prefix}.error.count`] = (summary[`${prefix}.error.count`] ?? 0) + 1;
+		}
+	} catch { /* Measurement cannot change SQL execution. */ }
+}
 
 /** Telemetry annotations must not replace an execution/cleanup error. */
 export function annotateSpan(span: Span, attributes: Attributes): void {
@@ -23,9 +40,11 @@ function activeContext(): Context {
 function withSpan<T>(name: Stage, options: SpanOptions, parent: Context, run: (span: Span) => Promise<T>, finish?: (span: Span) => void): Promise<T> {
 	let span = trace.wrapSpanContext(INVALID_SPAN_CONTEXT);
 	let active = parent;
+	const summary: SqlSummary | undefined = summarizedStages.has(name) ? {} : undefined;
 	try {
 		span = trace.getTracer("pi-agent-vercel").startSpan(name, options, parent);
 		active = trace.setSpan(parent, span);
+		if (summary !== undefined) active = active.setValue(sqlScopesKey, [...((parent.getValue(sqlScopesKey) as SqlSummary[] | undefined) ?? []), summary]);
 	} catch { /* Fall back to untraced execution. */ }
 	const execute = async () => {
 		try { return await run(span); }
@@ -34,6 +53,7 @@ function withSpan<T>(name: Stage, options: SpanOptions, parent: Context, run: (s
 			try { span.setStatus({ code: SpanStatusCode.ERROR }); } catch { /* Keep the original error. */ }
 			throw error;
 		} finally {
+			if (summary !== undefined) annotateSpan(span, summary);
 			try { finish?.(span); } catch { /* Keep execution and cleanup semantics. */ }
 			try { span.end(); } catch { /* Keep execution and cleanup semantics. */ }
 		}
