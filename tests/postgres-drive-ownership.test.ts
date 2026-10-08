@@ -51,8 +51,21 @@ describe.skipIf(databaseUrl === undefined)("drive ownership and Function budget"
 			});
 			throw new Error("unreachable");
 		}, failure === "deadline" ? 250 : 2_000);
-		if (failure === "session") vi.spyOn(state.leases, "renew").mockRejectedValueOnce(new SessionLeaseLostError(state.metadata.id));
-		if (failure === "job") vi.spyOn(state.jobs, "renew").mockRejectedValueOnce(new Error("claim lost"));
+		// Keep setup owned, then inject loss only once the effect is live.
+		if (failure === "session") {
+			const renew = state.leases.renew.bind(state.leases);
+			vi.spyOn(state.leases, "renew").mockImplementation(async (...args) => {
+				if (started > 0) throw new SessionLeaseLostError(state.metadata.id);
+				return renew(...args);
+			});
+		}
+		if (failure === "job") {
+			const renew = state.jobs.renew.bind(state.jobs);
+			vi.spyOn(state.jobs, "renew").mockImplementation(async (...args) => {
+				if (started > 0) throw new Error("claim lost");
+				return renew(...args);
+			});
+		}
 		expect(await state.worker.run()).toEqual([expect.objectContaining({ status: "waiting" })]);
 		expect(started).toBe(1); expect(aborted).toBe(1);
 		const session = await state.repo.open(state.metadata, BACKGROUND_CONTEXT);
