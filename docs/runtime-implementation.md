@@ -34,6 +34,7 @@ Start reading the code here:
 - **Renew while running:** session leases and job claims renew during a pass. Waiting work releases them for later scheduling.
 - **Stop effects, not the operation:** ownership loss or a deadline closes the harness effect gate without recording a user abort.
 - **External effects remain uncertain:** already-sent effects may still finish. Fencing does not promise exactly-once execution.
+- **Failure diagnostics:** unexpected HTTP failures log only stage, fixed error category/type and elapsed time. Raw exceptions, SQL, credentials and conversation data are omitted.
 - Hard termination can bypass cleanup. Recovery waits for outstanding claims to expire, then delegates effect replay and deferred polling to Pi.
 
 ## Result reads and projections

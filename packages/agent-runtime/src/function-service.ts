@@ -7,6 +7,7 @@ import type { Api, Model, Models } from "@earendil-works/pi-ai";
 import { DriveJobRepo, ensurePiPostgresSchema, PgExecutor, PostgresSessionRepo, SessionForkConflictError, SessionLeaseManager, SubmissionRepo, type SessionLeaseOptions } from "../../pi-postgres/src/index.ts";
 import { PostgresAdmission } from "./admission.ts";
 import { PostgresFunctionWorker } from "./function-worker.ts";
+import { reportFunctionFailure, type FunctionFailureStage } from "./function-diagnostics.ts";
 import type { Principal } from "./ingress.ts";
 import { PostgresSubmissionReader } from "./submission-reader.ts";
 
@@ -96,16 +97,19 @@ export class FunctionService {
 	async close(): Promise<void> { try { await this.repo.close(BACKGROUND_CONTEXT); } finally { await this.options.executor.close(); } }
 
 	async handle(req: Request, res: ServerResponse): Promise<void> {
+		const started = performance.now();
+		let stage: FunctionFailureStage = "request";
 		try {
 			const pathname = new URL(req.url ?? "/", "http://localhost").pathname.replace(/\/+$/, "");
 			if (pathname === "/api/worker" && (req.method === "GET" || req.method === "POST")) {
 				if (!authorized(req.headers.authorization, this.options.cronSecret)) throw new HttpError(401, "Unauthorized worker invocation");
-				await this.ready(); respond(res, 200, await this.worker.tick(BACKGROUND_CONTEXT)); return;
+				stage = "worker.bootstrap"; await this.ready();
+				stage = "worker.tick"; respond(res, 200, await this.worker.tick(BACKGROUND_CONTEXT)); return;
 			}
 			if (!authorized(req.headers.authorization, this.options.apiToken)) throw new HttpError(401, "Unauthorized");
 			const principal = this.options.principal;
 			if (!principal.scopes.includes("agent:run")) throw new HttpError(403, "Missing agent:run scope");
-			await this.ready();
+			stage = "api.bootstrap"; await this.ready(); stage = "api.request";
 			if (req.method === "POST" && pathname === "/api/sessions") {
 				const session = await this.repo.createWithOwner(principal, BACKGROUND_CONTEXT);
 				const metadata = session.metadata; await session.close(BACKGROUND_CONTEXT); respond(res, 201, { session: metadata }); return;
@@ -153,6 +157,9 @@ export class FunctionService {
 				return;
 			}
 			throw new HttpError(404, "Not found");
-		} catch (error) { respond(res, error instanceof HttpError ? error.status : 500, { error: error instanceof HttpError ? error.message : "Internal error" }); }
+		} catch (error) {
+			if (!(error instanceof HttpError)) reportFunctionFailure(error, stage, performance.now() - started);
+			respond(res, error instanceof HttpError ? error.status : 500, { error: error instanceof HttpError ? error.message : "Internal error" });
+		}
 	}
 }
