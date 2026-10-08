@@ -1,3 +1,4 @@
+import "../packages/agent-runtime/src/telemetry-bootstrap.ts";
 import { createServer } from "node:http";
 import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/pi-agent-core/harness/context";
 import { createFunctionServiceFromEnv } from "../packages/agent-runtime/src/function-config.ts";
