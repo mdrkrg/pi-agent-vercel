@@ -63,6 +63,20 @@ Budgets must be positive safe integer milliseconds and satisfy `max(pass, API ad
 
 Pool limits multiply across concurrent Functions. Renewals extend claim expiry, so use persisted expiry timestamps—not time since HTTP request—to assess takeover.
 
+## Tracing
+
+Application entries initialize Vercel OTel on Vercel. Configure a [Trace Drain](https://vercel.com/docs/tracing) for collection; instrumentation alone does not guarantee delivery. Durable submission/operation/job IDs correlate separate admission and worker traces.
+
+| Setting | Behavior |
+| --- | --- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Enables local collection; for example `http://localhost:4318` (SDK appends `/v1/traces`) |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Trace-specific collector URL, including `/v1/traces`; takes precedence |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | Use `http/protobuf` (default) or `http/json` |
+| `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG` | Default samples all; `parentbased_traceidratio` with `0.1` samples 10% of new roots and respects parent sampling |
+| `OTEL_SDK_DISABLED=true` | Disables application SDK initialization |
+
+Local execution has no exporter unless an endpoint is configured. `worker:once` and local-service shutdown wait up to 1s for a best-effort batch flush; an unavailable collector may still leave transport work pending. Telemetry failures do not change execution results. See [implementation](runtime-implementation.md) for privacy and timing limits.
+
 ## Vercel and scheduling
 
 Deploy from repository root with Node 24 and the checked-in `vercel.mjs`. The build runs `pnpm build`, serves static chat from `dist/`, and keeps `/api/*` rewrites routed to the existing Function. Neon integration can supply pooled `DATABASE_URL`; retain its recommended SSL settings.

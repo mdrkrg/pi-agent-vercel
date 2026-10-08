@@ -10,6 +10,7 @@ import { PostgresFunctionWorker } from "./function-worker.ts";
 import { reportFunctionFailure, type FunctionFailureStage } from "./function-diagnostics.ts";
 import type { Principal } from "./ingress.ts";
 import { PostgresSubmissionReader } from "./submission-reader.ts";
+import { traceStage } from "./tracing.ts";
 
 export type ServiceToolContext = { readonly principal: Principal; readonly sessionId: string; readonly submissionId: string; readonly operationId: string };
 export type FunctionServiceOptions = {
@@ -93,7 +94,7 @@ export class FunctionService {
 		this.worker = new PostgresFunctionWorker({ ...shared, jobs: this.jobs, discovery: { models: options.models, model: options.model }, ...(options.maxPassMs === undefined ? {} : { maxPassMs: options.maxPassMs }), ...(options.maxInvocationMs === undefined ? {} : { maxInvocationMs: options.maxInvocationMs }) });
 		this.reader = new PostgresSubmissionReader(this.repo, this.submissions);
 	}
-	ready(): Promise<void> { return this.readyPromise ??= ensurePiPostgresSchema(this.options.executor); }
+	ready(): Promise<void> { return this.readyPromise ??= traceStage("database.ready", {}, () => ensurePiPostgresSchema(this.options.executor)); }
 	async close(): Promise<void> { try { await this.repo.close(BACKGROUND_CONTEXT); } finally { await this.options.executor.close(); } }
 
 	async handle(req: Request, res: ServerResponse): Promise<void> {

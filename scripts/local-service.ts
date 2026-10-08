@@ -1,3 +1,4 @@
+import { flushTelemetry } from "../packages/agent-runtime/src/telemetry-bootstrap.ts";
 import { createServer } from "node:http";
 import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/pi-agent-core/harness/context";
 import { createFunctionServiceFromEnv } from "../packages/agent-runtime/src/function-config.ts";
@@ -19,15 +20,21 @@ server.listen(port, "127.0.0.1", () => {
 	const address = server.address();
 	if (address !== null && typeof address === "object") process.stdout.write(`Function PoC listening on http://127.0.0.1:${address.port}\n`);
 });
-const stop = () => { controller.abort(); server.close(); };
+let serverClosed: Promise<void> | undefined;
+const stop = () => {
+	controller.abort();
+	serverClosed ??= new Promise<void>((resolve) => { server.close(() => resolve()); });
+};
 process.once("SIGTERM", stop); process.once("SIGINT", stop);
-while (!controller.signal.aborted) {
-	const service = createFunctionServiceFromEnv();
-	try { await service.ready(); await service.worker.tick(withAbortSignal(controller.signal, BACKGROUND_CONTEXT)); }
-	catch (error) { if (!controller.signal.aborted) process.stderr.write(`${error instanceof Error ? error.message : "Worker failed"}\n`); }
-	finally { await service.close(); }
-	if (!controller.signal.aborted) await new Promise<void>((resolve) => {
-		const done = () => { clearTimeout(timer); controller.signal.removeEventListener("abort", done); resolve(); };
-		const timer = setTimeout(done, intervalMs); controller.signal.addEventListener("abort", done, { once: true });
-	});
-}
+try {
+	while (!controller.signal.aborted) {
+		const service = createFunctionServiceFromEnv();
+		try { await service.ready(); await service.worker.tick(withAbortSignal(controller.signal, BACKGROUND_CONTEXT)); }
+		catch (error) { if (!controller.signal.aborted) process.stderr.write(`${error instanceof Error ? error.message : "Worker failed"}\n`); }
+		finally { await service.close(); }
+		if (!controller.signal.aborted) await new Promise<void>((resolve) => {
+			const done = () => { clearTimeout(timer); controller.signal.removeEventListener("abort", done); resolve(); };
+			const timer = setTimeout(done, intervalMs); controller.signal.addEventListener("abort", done, { once: true });
+		});
+	}
+} finally { try { await serverClosed; } finally { await flushTelemetry(); } }
